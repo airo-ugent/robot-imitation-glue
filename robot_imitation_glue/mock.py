@@ -36,20 +36,32 @@ class MockEnv(BaseEnv):
         return blob
 
     def get_observations(self):
-        state_img = np.zeros((self.grid_size, self.grid_size, 3), dtype=np.uint8)
+        """observations with the same keys/dtypes as the real stations, so that the mock can be used
+        with the collection and eval loops. The mock has a single view, so the wrist image is a copy
+        of the scene image."""
+        scene_image = np.zeros((self.grid_size, self.grid_size, 3), dtype=np.uint8)
 
-        state_img[:, :, 0] = state_img[:, :, 0] + self._blob(self.agent_pos[0], self.agent_pos[1]) * 255
-        state_img[:, :, 1] = state_img[:, :, 1] + self._blob(self.target_pos[0], self.target_pos[1]) * 255
+        scene_image[:, :, 0] = scene_image[:, :, 0] + self._blob(self.agent_pos[0], self.agent_pos[1]) * 255
+        scene_image[:, :, 1] = scene_image[:, :, 1] + self._blob(self.target_pos[0], self.target_pos[1]) * 255
 
-        return {"agent_pos": self.agent_pos.astype(np.float32), "scene": state_img}
+        joints = self.get_joint_configuration()
+        gripper_state = np.atleast_1d(self.get_gripper_opening()).astype(np.float32)
 
-    def act(self, robot_pose_se3, gripper_opening, timestamp):
+        return {
+            "scene_image": scene_image,
+            "wrist_image": scene_image.copy(),
+            "state": np.concatenate((joints, gripper_state), axis=0),
+            "joints": joints,
+            "gripper_state": gripper_state,
+        }
+
+    def act(self, robot_pose_se3, gripper_pose, timestamp):
         action = robot_pose_se3[:2, 3]
         # binarize action
         action = np.round(action).astype(np.int32)
         self.agent_pos = action
         self.agent_pos = np.clip(self.agent_pos, 0, self.grid_size - 1)
-        self.gripper_opening = gripper_opening
+        self.gripper_opening = gripper_pose
 
     def act_joints(self, robot_joints, gripper_pose, timestamp):
         self.agent_pos = np.clip(np.round(robot_joints).astype(np.int32), 0, self.grid_size - 1)
@@ -133,12 +145,12 @@ if __name__ == "__main__":
 
         observations = env.get_observations()
         # convert teleop action to env action
-        img = observations["scene"]
-        cv2.imshow("scene", img)
+        img = observations["scene_image"]
+        cv2.imshow("scene_image", img)
         if cv2.waitKey(1) & 0xFF == ord("q"):
             break
         action = agent.get_action(observations)
         env_action, env_gripper = mock_agent_to_pose_converter(pose, env.get_gripper_opening(), action)
-        env.act(robot_pose_se3=env_action, gripper_opening=env_gripper, timestamp=0)
+        env.act(robot_pose_se3=env_action, gripper_pose=env_gripper, timestamp=0)
         pose = env_action
         time.sleep(0.1)
