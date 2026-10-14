@@ -158,29 +158,26 @@ a full rollout and pinpoints which part of the action space the policy got wrong
 
 [`robot_imitation_glue/mock.py`](../robot_imitation_glue/mock.py) contains `MockEnv` (a 2D point on a
 224x224 grid, rendered as a red "robot" blob and a green "target" blob), `MockAgent` (keyboard teleop on
-`i`/`j`/`k`/`l`) and `mock_agent_to_pose_converter`. `MockEnv` speaks the same `BaseEnv` interface the real
-stations do — `get_observations()`, `act()`, `get_robot_pose_se3()`, `get_gripper_opening()` — so it lets
-you exercise the control loop, the keyboard state machine, the Rerun logging and the dataset recorder
-without any hardware.
+`i`/`j`/`k`/`l`) and `mock_agent_to_pose_converter`. `MockEnv` implements the full `BaseEnv` interface the
+real stations do — `get_observations()`, `act()`, `act_joints()`, `get_joint_configuration()`,
+`get_robot_pose_se3()`, `get_gripper_opening()`, `move_robot_to_tcp_pose()`, `move_gripper()` — so it lets you
+exercise the control loop, the keyboard state machine, the Rerun logging and the dataset recorder without
+any hardware. Its "joint configuration" is simply the 2D grid position, and it declares an `ABS_EEF`
+`ACTION_SPEC` (as does `MockAgent`). `test/test_mock_env.py` shows how to drive it from a test.
 
 The `__main__` block of [`eval_agent.py`](../robot_imitation_glue/eval_agent.py) is the reference example:
 it wires `MockEnv` + two `MockAgent`s + a `LeRobotDatasetRecorder` into `eval()`.
 
-Two things to be aware of before you rely on it (both are current limitations of `mock.py`, not of your
-setup):
-
-- `MockEnv` does not implement the `get_joint_configuration`, `move_robot_to_tcp_pose` and `move_gripper`
-  abstract methods of `BaseEnv`, so instantiating it currently raises
-  `TypeError: Can't instantiate abstract class MockEnv`. Add stubs locally (or in a subclass) to use it.
-- `MockEnv.get_observations()` returns the keys `agent_pos` and `scene`, whereas `collect_data()` hardcodes
-  `observation["scene_image"]` and `observation["wrist_image"]` for its visualisation. The mock therefore
-  works with `eval()` (whose image key is configurable via `env_observation_image_key`) but not
-  out-of-the-box with `collect_data()`.
+One thing to be aware of before you rely on it (a current limitation of `mock.py`, not of your setup):
+`MockEnv.get_observations()` returns the keys `agent_pos` and `scene`, whereas `collect_data()` hardcodes
+`observation["scene_image"]` and `observation["wrist_image"]` for its visualisation. The mock therefore
+works with `eval()` (whose image key is configurable via `env_observation_image_key`) but not
+out-of-the-box with `collect_data()`; override `get_observations()` in a subclass to add those keys.
 
 For a hardware-free check of the **recorder** specifically, run
 
 ```bash
-python -m robot_imitation_glue.dataset_recorder
+uv run python -m robot_imitation_glue.dataset_recorder   # needs the lerobot extra
 ```
 
 which writes three synthetic episodes with images and state to `datasets/` and reads them back with
@@ -278,16 +275,17 @@ prompt still comes from wherever the agent takes it (`OpenPIAgent(default_prompt
 
 ## 6. Environment and import gotchas
 
-**The wrong `airo-*` version is being imported.** [`environment.yaml`](../environment.yaml) installs the
-vendored submodules — `airo-ipc/`, `airo-mono/airo-typing`, `airo-mono/airo-dataset-tools`,
-`airo-mono/airo-spatial-algebra`, `airo-mono/airo-camera-toolkit`, `airo-mono/airo-robots` — **without**
-`-e`, even though the comment at the top of that file tells you to use it. Two consequences:
+**The wrong `airo-*` / `lerobot` version is being imported.** The environment is managed with uv (see the
+README). The vendored submodules — `airo-ipc/`, the `airo-mono/` packages, `lerobot/` (the `tlpss/lerobot`
+fork, pinned in `.gitmodules`) and `airo-teleop/` — are installed as *editable* path dependencies
+(`[tool.uv.sources]` in `pyproject.toml`) behind optional extras, so edits under a submodule take effect
+immediately. Things that still go wrong:
 
-- Editing anything under `airo-mono/` (or running `git submodule update`) has no effect until you reinstall,
-  because the environment holds a *copy*. Re-run `conda env update -f environment.yaml`, or reinstall the
-  single package with `pip install -e airo-mono/airo-robots`.
-- If another project on the same machine has its own `airo-mono` on `PYTHONPATH` or installed into the
-  active environment, it can win over the one in this repo.
+- The submodules are not checked out (or not at the pinned commit): run
+  `git submodule update --init --recursive`, then `uv sync` with the extras you need
+  (e.g. `uv sync --extra lerobot --extra airo`). A bare `uv sync` installs none of them.
+- You run code with another interpreter than the uv environment (a conda env, a system Python, an IDE
+  pointing elsewhere), or another project's `airo-mono` / `lerobot` is on `PYTHONPATH`. Use `uv run ...`.
 
 When behaviour does not match the code you are reading, check what actually got imported before you debug
 anything else:
@@ -297,18 +295,12 @@ import airo_robots, airo_camera_toolkit, lerobot
 print(airo_robots.__file__, airo_camera_toolkit.__file__, lerobot.__file__)
 ```
 
-If the paths do not point where you expect, fix the environment first. A common local workaround is to
-prepend the workspace `airo-mono/<package>` directories to `sys.path` at the top of your entry-point script
-so the checked-out versions always win — a pragmatic fix, but prefer an editable install so that the
-environment and the repository cannot disagree in the first place. The same check matters even more for
-`lerobot`: it is vendored as a submodule (see `.gitmodules`, pinned to `tlpss/lerobot`) but is *not* listed
-in `environment.yaml`, so whichever `lerobot` happens to be importable is the one you get — and the dataset
-format and API differ noticeably between versions.
+The paths should point into this repository's submodules. This matters most for `lerobot`: the dataset
+format and API differ noticeably between versions. The code here targets the pinned fork
+(`lerobot.common.datasets...`, `dataset.add_frame(frame, task=...)`); a newer upstream lerobot
+(`lerobot.datasets...`) fails on import or on `add_frame`.
 
-**Stale module paths after the hardware refactor.** `ipc_camera.py` and `grippers/schunk_process.py` moved
-under `robot_imitation_glue/hardware/` in `5cb582e`.
-[`uR3station/robot_env.py`](../robot_imitation_glue/uR3station/robot_env.py) imports the new location, but
-[`ur5station/ur5_robot_env.py`](../robot_imitation_glue/ur5station/ur5_robot_env.py) still imports
-`robot_imitation_glue.ipc_camera` and `robot_imitation_glue.grippers.schunk_process`, so importing the UR5
-station currently fails with `ModuleNotFoundError` before it ever reaches the hardware. If an import error
-mentions a module that clearly exists, check whether it moved.
+**Import errors for modules that clearly exist.** `ipc_camera.py` and `grippers/schunk_process.py` live
+under `robot_imitation_glue/hardware/` (moved in `5cb582e`; both stations import that location now). If an
+import error mentions a module that clearly exists, check whether it moved, and whether the extra that
+provides it (`hardware`, `airo`, ...) is installed.

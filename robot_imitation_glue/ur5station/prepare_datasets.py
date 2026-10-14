@@ -77,11 +77,13 @@ def ee_pose_frame_transform(frame):
     return new_frame
 
 
-transform_dataset(
-    root_dir="datasets/pour-cup-v2",
-    new_root_dir="datasets/pour-cup-v2-remapped-joints",
-    transform_fn=joints_frame_transform,
-    transform_features_fn=features_transform,
-    features_to_drop=features_to_drop,
-    episodes_to_drop=[12],
-)
+if __name__ == "__main__":
+    # rewrites a dataset: edit the paths/transforms below, then run this module as a script.
+    transform_dataset(
+        root_dir="datasets/pour-cup-v2",
+        new_root_dir="datasets/pour-cup-v2-remapped-joints",
+        transform_fn=joints_frame_transform,
+        transform_features_fn=features_transform,
+        features_to_drop=features_to_drop,
+        episodes_to_drop=[12],
+    )

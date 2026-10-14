@@ -4,7 +4,7 @@ Teleop device drivers and the agents that bind them to `airo-robots` manipulator
 airo-teleop repo, so that they can be shared between projects. This module contains a thin adapter that wraps
 an ``airo_teleop_agents.teleop_agent.TeleopAgent`` and exposes it as a robot-imitation-glue
 :class:`~robot_imitation_glue.base.BaseAgent`, i.e. it makes the airo-teleop agent usable with
-:func:`robot_imitation_glue.collect_data.collect_data` and :func:`robot_imitation_glue.eval_agent.eval_agent`.
+:func:`robot_imitation_glue.collect_data.collect_data` and :func:`robot_imitation_glue.eval_agent.eval`.
 
 Installation
 ------------

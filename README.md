@@ -20,11 +20,11 @@ The code is written modularly so that you can easily:
 
 ## Some core design decisions and assumptions
 
-- code to describe and train networks for policy is not part of this codebase, recommended flow is to collect dataset here, train in separate codebase and then evalute the trained policy using a webserver (to avoid dependency issues and maintain separation of concerns).
+- code to describe and train networks for policy is mostly not part of this codebase (the exception being the small plain-pytorch BC and DiT baselines in `robot_imitation_glue/baseline/`), recommended flow is to collect dataset here, train in separate codebase and then evalute the trained policy using a webserver (to avoid dependency issues and maintain separation of concerns).
 
 - policies and teleop devices are both abstracted as agents.
 
-- we assume a single robot arm + gripper. Control interface is absolute end-effector poses + absolute gripper width.
+- we assume a single robot arm + gripper. The default control interface is absolute end-effector poses + absolute gripper width (`BaseEnv.act`). Envs can also accept absolute joint configurations + gripper width (`BaseEnv.act_joints`, implemented by the UR5 station and the mock env); `ActionType` in `base.py` names the action spaces.
 
 - we use the Lerobot dataset format and tooling to store demonstrations and rollouts.
 
@@ -44,7 +44,17 @@ Both are powered using our airo-mono repo, but you can freely select a control s
 
 ### UR5station
 
+[`robot_imitation_glue/ur5station/`](robot_imitation_glue/ur5station/): UR5e + Schunk EGK40 gripper, teleoperated with a
+Gello arm, with a scene and a wrist camera. Contains the env (`ur5_robot_env.py`), data collection
+(`data_collection.py`), dataset preparation (`prepare_datasets.py`, e.g. EEF to joint actions via IK), episode replay
+(`replay.py`), the LeRobot training configs (`lerobot_train/`) and evaluation of ACT, Diffusion Policy and pi0
+(`eval_*.py`).
+
 ### UR3station
+
+[`robot_imitation_glue/uR3station/`](robot_imitation_glue/uR3station/): UR3e + Robotiq 2F-85 gripper, teleoperated with
+a SpaceMouse using relative (delta) actions. Contains the env (`robot_env.py`), data collection (`collect_data.py`) and
+OpenVLA evaluation (`eval_openvla.py`).
 
 
 ## Development
@@ -54,7 +64,7 @@ Both are powered using our airo-mono repo, but you can freely select a control s
 We use [uv](https://docs.astral.sh/uv/) for dependency management.
 
 - clone this repo with its submodules: `git clone --recurse-submodules git@github.com:airo-ugent/robot-imitation-glue.git`
-  (already cloned? `git submodule update --init`)
+  (already cloned? `git submodule update --init --recursive`)
 - create the environment: `uv sync --all-extras`
 - run anything in it with `uv run <cmd>`, e.g. `uv run pytest test/`
 

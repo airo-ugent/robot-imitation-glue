@@ -1,5 +1,5 @@
 """
-Environement for Robot Station with 2 realsense cameras and a UR3e robot with a Robotiq Gripper
+Environment for the UR5 station: a ZED scene camera, a RealSense wrist camera and a UR5e robot with a Schunk EGK40 gripper
 
 Actions as absolute target pose (rotation vector) in robot base frame and absolute gripper width
 Proprioception as robot pose (euler angles) in robot base frame and gripper width
