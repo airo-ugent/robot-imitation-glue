@@ -139,6 +139,9 @@ class UR5eStation(BaseEnv):
     def move_robot_to_tcp_pose(self, pose):
         self.robot.move_to_tcp_pose(pose).wait()
 
+    def move_robot_to_joint_configuration(self, joints):
+        self.robot.move_to_joint_configuration(joints).wait()
+
     def move_gripper(self, width):
         self.gripper.move(width).wait()
 

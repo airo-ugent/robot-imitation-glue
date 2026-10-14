@@ -69,6 +69,9 @@ class MockEnv(BaseEnv):
     def move_robot_to_tcp_pose(self, pose):
         self.act(pose, self.gripper_opening, 0)
 
+    def move_robot_to_joint_configuration(self, joints):
+        self.act_joints(joints, self.gripper_opening, 0)
+
     def move_gripper(self, width):
         self.gripper_opening = width
 

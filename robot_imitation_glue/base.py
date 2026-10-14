@@ -59,6 +59,12 @@ class BaseEnv(abc.ABC):
     def move_robot_to_tcp_pose(self, pose):
         """move robot to a given SE3 tcp pose"""
 
+    def move_robot_to_joint_configuration(self, joints):
+        """move the robot slowly (moveJ) to a given joint configuration (n,), blocking.
+
+        Used to approach the configuration of a joint-space teleop device before servoing with `act_joints`."""
+        raise NotImplementedError
+
     @abc.abstractmethod
     def move_gripper(self, width):
         """move gripper to a given width"""

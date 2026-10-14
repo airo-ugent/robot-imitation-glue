@@ -10,8 +10,14 @@ def test_recorded_episode_is_saved(tmp_path):
     """record_step must match the pinned lerobot's add_frame signature (the task is an argument there)."""
     obs = {"scene_image": np.zeros((16, 16, 3), dtype=np.uint8), "state": np.array([0.1, 0.2, 0.3], dtype=np.float32)}
     action = np.array([0.1, 0.2, 0.3], dtype=np.float32)
-    recorder = LeRobotDatasetRecorder(example_obs_dict=obs, example_action=action, root_dataset_dir=tmp_path / "dataset",
-                                      dataset_name="test_dataset", fps=10, use_videos=False)
+    recorder = LeRobotDatasetRecorder(
+        example_obs_dict=obs,
+        example_action=action,
+        root_dataset_dir=tmp_path / "dataset",
+        dataset_name="test_dataset",
+        fps=10,
+        use_videos=False,
+    )
     recorder.start_episode()
     for _ in range(3):
         recorder.record_step(obs, action)
