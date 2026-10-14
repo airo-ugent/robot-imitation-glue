@@ -3,6 +3,7 @@ import json
 import click
 
 from robot_imitation_glue.lerobot_dataset.transform_dataset import transform_dataset
+from robot_imitation_glue.preprocessing import LEROBOT_KEY_MAPPING, ORIGINAL_IMAGE_KEYS, remap_to_lerobot_keys
 
 
 @click.command()
@@ -16,12 +17,12 @@ from robot_imitation_glue.lerobot_dataset.transform_dataset import transform_dat
 )
 @click.option(
     "--feature-mapping",
-    default='{"scene_image": "observation.images.scene_image", "wrist_image": "observation.images.wrist_image", "state": "observation.state"}',
+    default=json.dumps(LEROBOT_KEY_MAPPING),
     help="JSON string mapping original feature names to new feature names",
 )
 @click.option(
     "--features-to-drop",
-    default='["wrist_image_original", "scene_image_original"]',
+    default=json.dumps(ORIGINAL_IMAGE_KEYS),
     help="JSON string of feature names to drop from the new dataset",
 )
 def remap_lerobot_dataset(  # noqa: C901
@@ -42,10 +43,7 @@ def remap_lerobot_dataset(  # noqa: C901
     features_to_drop_list = json.loads(features_to_drop)
 
     def remap_features(frame):
-        for old_key, new_key in feature_mapping_dict.items():
-            if old_key in frame:
-                frame[new_key] = frame.pop(old_key)
-        return frame
+        return remap_to_lerobot_keys(frame, feature_mapping_dict)
 
     transform_dataset(
         repo_id=repo_id,

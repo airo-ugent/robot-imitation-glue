@@ -6,47 +6,18 @@ import numpy as np
 from robot_imitation_glue.agents.gello import DynamixelConfig, GelloAgent
 from robot_imitation_glue.collect_data import collect_data
 from robot_imitation_glue.dataset_recorder import LeRobotDatasetRecorder
+
+# the action encoding is shared with the dataset preparation and the eval scripts,
+# see robot_imitation_glue.preprocessing for the inverse conversion.
+# both converters used to be defined in this module: keep re-exporting them so that existing
+# `from robot_imitation_glue.ur5station.data_collection import ...` imports keep working.
+from robot_imitation_glue.preprocessing import abs_se3_to_policy_action_converter  # noqa: F401
+from robot_imitation_glue.preprocessing import policy_action_to_abs_se3_converter  # noqa: F401
 from robot_imitation_glue.ur5station.ur5_robot_env import (
     GELLO_AGENT_PORT,
     UR5eStation,
     convert_abs_gello_actions_to_se3,
 )
-
-
-def abs_se3_to_policy_action_converter(robot_pose, gripper_pose, abs_se3_action, gripper_action):
-    """absolute poses, encoded as position, x-vector of rotation, y-vector of rotation, gripper action"""
-    abs_position_target = abs_se3_action[:3, 3]
-    abs_rotation_x = abs_se3_action[:3, 0]
-    abs_rotation_y = abs_se3_action[:3, 1]
-
-    policy_action = np.zeros(10)
-    policy_action[:3] = abs_position_target
-    policy_action[3:6] = abs_rotation_x
-    policy_action[6:9] = abs_rotation_y
-    policy_action[9] = gripper_action
-    policy_action = policy_action.astype(np.float32)
-    return policy_action
-
-
-def policy_action_to_abs_se3_converter(robot_pose, gripper_pose, policy_action):
-    policy_action = policy_action.astype(np.float64)
-    abs_position_target = policy_action[:3]
-    rot6D = policy_action[3:9]
-    gripper_action = policy_action[9]
-
-    # convert to se3
-    x = rot6D[:3] / np.linalg.norm(rot6D[:3])
-    y = rot6D[3:] - np.dot(rot6D[3:], x) * x
-    y = y / np.linalg.norm(y)
-    z = np.cross(x, y)
-
-    target_pose = np.eye(4)
-    target_pose[:3, 3] = abs_position_target
-    target_pose[:3, 0] = x
-    target_pose[:3, 1] = y
-    target_pose[:3, 2] = z
-    return target_pose, gripper_action
-
 
 if __name__ == "__main__":
     import argparse

@@ -1,10 +1,10 @@
 import time
 
-import numpy as np
 from loguru import logger
 
 from lerobot.common.datasets.lerobot_dataset import LeRobotDataset
 from robot_imitation_glue.base import BaseEnv
+from robot_imitation_glue.preprocessing import lerobot_tensor_to_image
 
 
 def replay_episode(
@@ -30,9 +30,11 @@ def replay_episode(
     env.move_robot_to_tcp_pose(initial_robot_pose)
     env.move_gripper(initial_gripper)
 
-    # convert torch image to numpy image
-    dataset_initial_image = dataset_initial_image.cpu().numpy()
-    dataset_initial_image = dataset_initial_image.transpose(1, 2, 0).astype(np.uint8)
+    # convert torch image to numpy image.
+    # BEHAVIOUR CHANGE: LeRobotDataset returns images (and decoded video frames) as CHW float in [0,1], the old
+    # code cast that straight to uint8, which gave an all-black image. lerobot_tensor_to_image scales by 255 first,
+    # as eval_agent already did.
+    dataset_initial_image = lerobot_tensor_to_image(dataset_initial_image)
 
     # while True:
     #     img = env.get_observations()[image_key]

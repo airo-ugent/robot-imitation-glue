@@ -7,6 +7,7 @@ import rerun as rr
 
 from lerobot.common.datasets.lerobot_dataset import LeRobotDataset
 from robot_imitation_glue.base import BaseAgent, BaseDatasetRecorder, BaseEnv
+from robot_imitation_glue.preprocessing import lerobot_tensor_to_image
 from robot_imitation_glue.utils import precise_wait
 
 # create type for callable that takes obs and returns action
@@ -137,9 +138,7 @@ def eval(  # noqa: C901
                 initial_scene_image = eval_dataset[step_idx][eval_dataset_image_key]
 
                 # convert to numpy array of uint8 values
-                initial_scene_image = initial_scene_image.permute(1, 2, 0).numpy()
-                initial_scene_image *= 255
-                initial_scene_image = initial_scene_image.astype(np.uint8)
+                initial_scene_image = lerobot_tensor_to_image(initial_scene_image)
 
                 instruction = eval_dataset[step_idx]["task"]
                 logger.info(

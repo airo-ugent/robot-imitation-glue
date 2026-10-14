@@ -5,6 +5,7 @@ from robot_imitation_glue.agents.gello.gello_agent import GelloAgent
 from robot_imitation_glue.agents.openpi_agent import OpenPIAgent
 from robot_imitation_glue.dataset_recorder import LeRobotDatasetRecorder
 from robot_imitation_glue.eval_agent import eval
+from robot_imitation_glue.preprocessing import concatenate_state
 from robot_imitation_glue.ur5station.ur5_robot_env import (
     GELLO_AGENT_PORT,
     UR5eStation,
@@ -20,16 +21,11 @@ if __name__ == "__main__":
     prompt = "pour the white mug in the transparent cup"
 
     def preprocessor(obs_dict):
-        scene_img = obs_dict["scene_image"]
-        wrist_img = obs_dict["wrist_image"]
-        joints = obs_dict["joints"]
-        gripper = obs_dict["gripper_state"]
-        state = np.concatenate([joints, gripper])
-
+        # joint state, matching the joint dataset transform in prepare_datasets.py
         return {
-            "scene_image": scene_img,
-            "wrist_image": wrist_img,
-            "state": state,
+            "scene_image": obs_dict["scene_image"],
+            "wrist_image": obs_dict["wrist_image"],
+            "state": concatenate_state(obs_dict["joints"], obs_dict["gripper_state"]),
         }
 
     env = UR5eStation()

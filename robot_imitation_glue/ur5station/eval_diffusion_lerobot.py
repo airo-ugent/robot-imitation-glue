@@ -1,12 +1,14 @@
 import numpy as np
-import torch
 
 from lerobot.common.datasets.lerobot_dataset import LeRobotDataset
 from robot_imitation_glue.agents.gello.gello_agent import GelloAgent
 from robot_imitation_glue.agents.lerobot_agent import LerobotAgent, make_lerobot_policy
 from robot_imitation_glue.dataset_recorder import LeRobotDatasetRecorder
 from robot_imitation_glue.eval_agent import eval
-from robot_imitation_glue.ur5station.data_collection import policy_action_to_abs_se3_converter
+from robot_imitation_glue.preprocessing import (
+    lerobot_observation_from_env_observation,
+    policy_action_to_abs_se3_converter,
+)
 from robot_imitation_glue.ur5station.ur5_robot_env import (
     GELLO_AGENT_PORT,
     UR5eStation,
@@ -22,25 +24,10 @@ if __name__ == "__main__":
     eval_dataset_name = "pick-cube-eval-DP"
 
     def preprocessor(obs_dict):
-        scene_img = obs_dict["scene_image"]
-        wrist_img = obs_dict["wrist_image"]
-        state = obs_dict["state"]
-
-        state = torch.tensor(state).float().unsqueeze(0)
-        scene_image = torch.tensor(scene_img).float() / 255.0
-        wrist_image = torch.tensor(wrist_img).float() / 255.0
-        scene_image = scene_image.permute(2, 0, 1)
-        wrist_image = wrist_image.permute(2, 0, 1)
-
-        # unsqueeze images
-        scene_image = scene_image.unsqueeze(0)
-        wrist_image = wrist_image.unsqueeze(0)
-
-        return {
-            "observation.images.scene_image": scene_image,
-            "observation.images.wrist_image": wrist_image,
-            "observation.state": state,
-        }
+        # eef pose state, as recorded by the env during data collection
+        return lerobot_observation_from_env_observation(
+            obs_dict["scene_image"], obs_dict["wrist_image"], obs_dict["state"]
+        )
 
     env = UR5eStation()
     env.reset()

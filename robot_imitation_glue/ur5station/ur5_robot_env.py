@@ -1,5 +1,5 @@
 """
-Environement for Robot Station with 2 realsense cameras and a UR3e robot with a Robotiq Gripper
+Environment for the UR5 station: a ZED scene camera, a RealSense wrist camera and a UR5e robot with a Schunk EGK40 gripper
 
 Actions as absolute target pose (rotation vector) in robot base frame and absolute gripper width
 Proprioception as robot pose (euler angles) in robot base frame and gripper width
@@ -22,6 +22,10 @@ from robot_imitation_glue.base import BaseEnv
 from robot_imitation_glue.hardware.grippers.schunk_process import SchunkGripperProcess
 from robot_imitation_glue.hardware.ipc_camera import RGBCameraPublisher, RGBCameraSubscriber, initialize_ipc
 
+# the TCP offset is also needed by the offline dataset preparation (IK), so it is defined in the shared
+# preprocessing module to keep the online and offline kinematics in sync.
+from robot_imitation_glue.preprocessing import SCHUNK_TCP_OFFSET
+
 # env consists of 1 zed scene camera, 1 wrist  realsense cameras and a UR5e robot + Schunk gripper
 
 WRIST_REALSENSE_SERIAL = "817612070315"
@@ -33,7 +37,6 @@ SCENE_CAM_RGB_TOPIC = "scene_rgb"
 SCENE_CAM_RESOLUTION_TOPIC = "scene_resolution"
 
 ROBOT_IP = "10.42.0.163"
-SCHUNK_TCP_OFFSET = 0.184
 
 SCHUNK_GRIPPER_HOST = "/dev/serial/by-id/usb-1a86_USB_Serial-if00-port0,11,115200,8E1"  # run bks_scan -H <usb> to find the slaveID, run dmesg | grep tty to find the usb port
 

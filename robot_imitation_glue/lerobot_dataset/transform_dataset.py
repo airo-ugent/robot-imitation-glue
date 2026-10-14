@@ -150,47 +150,25 @@ def transform_dataset(  # noqa: C901
 
 # Example usage:
 if __name__ == "__main__":  # noqa: C901
-    # Example transformation function that renames features
+    from robot_imitation_glue.preprocessing import ORIGINAL_IMAGE_KEYS, remap_to_lerobot_keys
+
+    # Example mapping, the shared key mapping is used for the observation keys.
+    example_key_mapping = {
+        "scene_image": "observation.images.scene_image",
+        "wrist_image": "observation.images.wrist_image",
+        "joints": "observation.joints",
+        "gripper_state": "observation.gripper_state",
+    }
+
+    # Example transformation function that renames features, works both on frames and on the features dict.
     def example_transform(frame):
-        new_frame = {}
-
-        for key, value in frame.items():
-            # Example mapping
-            if key == "scene_image":
-                new_frame["observation.images.scene_image"] = value
-            elif key == "wrist_image":
-                new_frame["observation.images.wrist_image"] = value
-            elif key == "joints":
-                new_frame["observation.joints"] = value
-            elif key == "gripper_state":
-                new_frame["observation.gripper_state"] = value
-            else:
-                new_frame[key] = value
-
-        return new_frame
-
-    # Example feature transformation function
-    def example_transform_features(features):
-        new_features = {}
-        for key, value in features.items():
-            # Example mapping for features
-            if key == "scene_image":
-                new_features["observation.images.scene_image"] = value
-            elif key == "wrist_image":
-                new_features["observation.images.wrist_image"] = value
-            elif key == "joints":
-                new_features["observation.joints"] = value
-            elif key == "gripper_state":
-                new_features["observation.gripper_state"] = value
-            else:
-                new_features[key] = value
-        return new_features
+        return remap_to_lerobot_keys(frame, example_key_mapping)
 
     # Example call
     transform_dataset(
         root_dir="datasets/pick-cube-val",
         new_root_dir="datasets/pick_cube-transformed-test",
         transform_fn=example_transform,
-        transform_features_fn=example_transform_features,
-        features_to_drop=["wrist_image_original", "scene_image_original"],
+        transform_features_fn=example_transform,
+        features_to_drop=ORIGINAL_IMAGE_KEYS,
     )
