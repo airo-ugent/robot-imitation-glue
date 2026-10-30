@@ -82,15 +82,8 @@ class LeRobotDatasetRecorder(BaseDatasetRecorder):
 
         if self.root_dataset_dir.exists():
             print(f"Dataset {dataset_name} already exists. Loading it.")
-            self.lerobot_dataset = self._resume()
-            meta = self.lerobot_dataset.meta
-            if meta.episodes is None or len(meta.episodes) != meta.total_episodes:
-                # a session that was killed while saving an episode, appending would hide the damage
-                raise RuntimeError(
-                    f"{self.root_dataset_dir} is inconsistent: info.json counts {meta.total_episodes} episodes, the "
-                    f"episode metadata has {0 if meta.episodes is None else len(meta.episodes)}. Repair or move it."
-                )
-            self._n_recorded_episodes = meta.total_episodes
+            self.lerobot_dataset = self._resume_existing()
+            self._n_recorded_episodes = self.lerobot_dataset.meta.total_episodes
             print(f"Loaded {self._n_recorded_episodes} episodes.")
         else:
             print(f"Dataset {dataset_name} does not exist. Creating it.")
@@ -107,6 +100,25 @@ class LeRobotDatasetRecorder(BaseDatasetRecorder):
         # lerobot keeps the data and episode-metadata parquet files open until finalize(): without it the dataset
         # on disk is unreadable. save_episode() finalizes after every episode, this covers an unsaved last one.
         atexit.register(self.finish_recording)
+
+    def _resume_existing(self) -> LeRobotDataset:
+        """resume the dataset in root_dataset_dir after checking that it is consistent."""
+        dataset = self._resume()
+        meta = dataset.meta
+        # a dataset without saved episodes (a session that quit before saving one) has no episode metadata yet
+        if meta.total_episodes > 0 and (meta.episodes is None or len(meta.episodes) != meta.total_episodes):
+            # a session that was killed while saving an episode, appending would hide the damage
+            raise RuntimeError(
+                f"{self.root_dataset_dir} is inconsistent: info.json counts {meta.total_episodes} episodes, the "
+                f"episode metadata has {0 if meta.episodes is None else len(meta.episodes)}. Repair or move it."
+            )
+        if (self.root_dataset_dir / "action_representation.json").exists():
+            print(
+                "WARNING: this dataset has relative action stats (action_representation.json). Run "
+                "lerobot_dataset/relative_action_stats.py again after recording, the new episodes add absolute "
+                "action stats."
+            )
+        return dataset
 
     def _resume(self) -> LeRobotDataset:
         return LeRobotDataset.resume(

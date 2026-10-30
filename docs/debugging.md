@@ -69,7 +69,8 @@ python -m robot_imitation_glue.agents.lerobot_agent --checkpoint <.../pretrained
 ```
 
 It loads the checkpoint with `make_lerobot_policy(pretrained_path, device)`, takes a frame straight
-from the training dataset, and prints the predicted action next to `dataset[0]["action"]`. If those two do
+from the training dataset (for a `use_relative_actions` policy the prediction is converted back to an absolute
+target with that frame's state first, as `LerobotAgent` does), and prints the predicted action next to `dataset[0]["action"]`. If those two do
 not roughly agree on a *training* frame, the problem is the checkpoint or the dataset stats, not your robot.
 The second half of that block then runs a `LerobotAgent` with a `observation_preprocessor` on randomly
 generated observations, which is how you check that your preprocessor produces the exact keys, dtypes,
@@ -197,7 +198,7 @@ use it.
 | `add_description_lerobot_dataset.py` | Add/overwrite the language instruction (`task`) of episodes: `... --repo-id <id> --root <dir> -e 0-20 --description "pick the cube" -b` |
 | `remap_lerobot_keys.py` | Rename features to the `observation.*` keys the policies expect: `python -m robot_imitation_glue.lerobot_dataset.remap_lerobot_keys --root-dir <dir> --new-root-dir <dir> --feature-mapping '{"scene_image": "observation.images.scene_image"}'` |
 | `transform_dataset.py` | The generic building block: `transform_dataset(root_dir, new_root_dir, transform_fn, transform_features_fn, features_to_drop, episodes_to_drop)` — writes a new dataset frame by frame. Use it for anything the CLIs do not cover (see `ur5station/prepare_datasets.py` for a real example that converts rot6d EEF actions to joint actions with IK and drops a broken episode). |
-| `relative_action_stats.py` | Before training a diffusion policy with UMI-style relative actions (`--policy.use_relative_actions=true`): replace the dataset's action stats with those of the relative action chunks the policy trains on: `python -m robot_imitation_glue.lerobot_dataset.relative_action_stats --root <dir>` (pass the policy's `--horizon`/`--n-obs-steps`/`--drop-n-last-frames` if they differ from the UR5 config). |
+| `relative_action_stats.py` | Before training a diffusion policy with UMI-style relative actions (`--policy.use_relative_actions=true`): replace the dataset's action stats with those of the relative action chunks the policy trains on: `python -m robot_imitation_glue.lerobot_dataset.relative_action_stats --root <dir>` (pass the policy's `--horizon`/`--n-obs-steps`/`--drop-n-last-frames` if they differ from the UR5 config). It also rewrites the per-episode stats, so later edits with the scripts above keep the relative stats; after recording more episodes into the dataset, run it again. Only `LerobotAgent` converts the policy's relative output back to absolute: lerobot's own `lerobot-eval`/`lerobot-record` would execute the relative poses as absolute targets. |
 | `upload_dataset.py` | Push a local dataset to the HF hub. |
 | `ur3station/zero_action_remover.ipynb` | Notebook that drops near-zero actions and binarises the gripper action (used for OpenVLA). |
 

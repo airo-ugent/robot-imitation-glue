@@ -117,7 +117,12 @@ if __name__ == "__main__":
             batch[k] = v.unsqueeze(0)
 
     time_before = time.time()
-    action = policy_postprocessor(policy.select_action(policy_preprocessor(batch))).squeeze(0)
+    reference_state = batch[OBS_STATE].clone()  # raw state, before the preprocessor normalizes it
+    action = policy_postprocessor(policy.select_action(policy_preprocessor(batch)))
+    if getattr(policy.config, "use_relative_actions", False):
+        # the policy predicts relative actions, compare the absolute target with the dataset (see LerobotAgent)
+        action = relative_to_absolute_pose_actions(action, reference_state)
+    action = action.squeeze(0)
     time_after = time.time()
     print(f"inferece took {time_after-time_before} s")
     print(f"policy action: {action}")

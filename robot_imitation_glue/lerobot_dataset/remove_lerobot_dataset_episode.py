@@ -56,6 +56,11 @@ def remove_episodes(dataset: LeRobotDataset, episodes_to_remove: list[int], back
 
     tmp_root = root.parent / f"{root.name}_tmp_{int(time.time())}"
     delete_episodes(dataset, episodes_to_remove, output_dir=tmp_root, repo_id=dataset.repo_id)
+    # delete_episodes only writes lerobot's own data/meta/videos: keep everything else of the dataset dir (e.g.
+    # action_representation.json, other stats files) instead of deleting it with the old dir
+    for entry in root.iterdir():
+        if not (tmp_root / entry.name).exists():
+            shutil.move(str(entry), str(tmp_root / entry.name))
     shutil.rmtree(root)
     tmp_root.rename(root)
     return LeRobotDataset(repo_id=dataset.repo_id, root=root)
