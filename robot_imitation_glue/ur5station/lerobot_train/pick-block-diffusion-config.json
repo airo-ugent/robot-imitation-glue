@@ -179,7 +179,7 @@
     "persistent_workers": true,
     "dataloader_multiprocessing_context": "spawn",
     "steps": 100000,
-    "env_eval_freq": 20000,
+    "env_eval_freq": 0,
     "log_freq": 200,
     "eval_steps": 0,
     "max_eval_samples": 0,

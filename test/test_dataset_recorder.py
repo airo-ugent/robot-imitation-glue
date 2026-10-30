@@ -140,3 +140,38 @@ def test_recording_into_an_existing_dataset_appends(tmp_path):
     assert dataset.meta.total_episodes == 2
     np.testing.assert_array_equal(_saved_column(dataset, "episode_index").reshape(-1), [0, 0, 1, 1, 1])
     np.testing.assert_array_equal(_saved_column(dataset, "next.success").reshape(-1), [False, False, True, True, True])
+
+
+_KILLED_SESSION = """
+import os, sys
+import numpy as np
+from robot_imitation_glue.dataset_recorder import LeRobotDatasetRecorder
+
+# 64x64: the AV1 video encoder crashes (SIGFPE) on tiny frames
+obs = {"scene_image": np.zeros((64, 64, 3), dtype=np.uint8), "state": np.zeros(3, dtype=np.float32)}
+recorder = LeRobotDatasetRecorder(obs, np.zeros(3, dtype=np.float32), sys.argv[1], "test_dataset", 10, sys.argv[2] == "1")
+for _ in range(2):
+    for _ in range(3):
+        recorder.record_step(obs, np.zeros(3, dtype=np.float32))
+    recorder.save_episode()
+recorder.record_step(obs, np.zeros(3, dtype=np.float32))  # an unsaved episode in progress
+os._exit(1)  # killed: no finish_recording(), no atexit
+"""
+
+
+@pytest.mark.parametrize("use_videos", [False, True])
+def test_saved_episodes_survive_a_killed_session(tmp_path, use_videos):
+    import subprocess
+    import sys
+
+    root = tmp_path / "dataset"
+    for _ in range(2):  # the second killed session appends to the dataset the first one left behind
+        session = subprocess.run([sys.executable, "-c", _KILLED_SESSION, str(root), str(int(use_videos))])
+        assert session.returncode == 1  # the os._exit, not an earlier crash
+        dataset = LeRobotDataset(repo_id="test_dataset", root=root)
+        assert dataset.meta.total_episodes == len(dataset.meta.episodes)
+    assert dataset.meta.total_episodes == 4
+    assert len(dataset) == 12
+    np.testing.assert_array_equal(_saved_column(dataset, "episode_index").reshape(-1), np.repeat([0, 1, 2, 3], 3))
+    if use_videos:
+        assert dataset[11]["scene_image"].shape == (3, 64, 64)

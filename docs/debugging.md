@@ -265,11 +265,11 @@ into the next step's target. After a refused pose both loops continue from the m
 selects which episode of the `eval_dataset` is used as initial-scene reference, so a continued eval picks up
 the scenario list where it left off. If you want a fresh dataset, use a fresh directory.
 
-**A recording session must end with `finish_recording()`.** lerobot keeps the data and episode-metadata
-parquet files of a dataset open while recording and only writes their footers in `finalize()`, which
-`finish_recording()` calls (`collect_data()` and `eval()` do so on quit; the recorder also registers it with
-`atexit`). A process that is killed hard (SIGKILL, power loss) before that leaves a dataset that fails to load
-with `Parquet magic bytes not found in footer`; the episodes saved in that session are then lost.
+**Every saved episode is complete on disk.** lerobot keeps a dataset's data and episode-metadata parquet files
+open while recording and only writes their footers in `finalize()`. `LeRobotDatasetRecorder.save_episode()`
+therefore finalizes and resumes the dataset after every episode (one data file per episode), so a session that
+is killed hard (SIGKILL, closed terminal, driver crash) only loses the episode in progress. If a dataset is
+inconsistent anyway (killed while saving), the recorder refuses to append to it instead of hiding the damage.
 
 **Deleting an episode.** Pressing `d` in `collect_data()` cancels the episode that is being recorded. Saved
 episodes cannot be deleted during collection: finish the session and use `remove_lerobot_dataset_episode.py`.

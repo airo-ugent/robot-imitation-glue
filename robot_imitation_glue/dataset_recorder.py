@@ -82,10 +82,15 @@ class LeRobotDatasetRecorder(BaseDatasetRecorder):
 
         if self.root_dataset_dir.exists():
             print(f"Dataset {dataset_name} already exists. Loading it.")
-            self.lerobot_dataset = LeRobotDataset.resume(
-                repo_id=dataset_name, root=self.root_dataset_dir, image_writer_processes=0, image_writer_threads=16
-            )
-            self._n_recorded_episodes = self.lerobot_dataset.meta.total_episodes
+            self.lerobot_dataset = self._resume()
+            meta = self.lerobot_dataset.meta
+            if meta.episodes is None or len(meta.episodes) != meta.total_episodes:
+                # a session that was killed while saving an episode, appending would hide the damage
+                raise RuntimeError(
+                    f"{self.root_dataset_dir} is inconsistent: info.json counts {meta.total_episodes} episodes, the "
+                    f"episode metadata has {0 if meta.episodes is None else len(meta.episodes)}. Repair or move it."
+                )
+            self._n_recorded_episodes = meta.total_episodes
             print(f"Loaded {self._n_recorded_episodes} episodes.")
         else:
             print(f"Dataset {dataset_name} does not exist. Creating it.")
@@ -99,9 +104,14 @@ class LeRobotDatasetRecorder(BaseDatasetRecorder):
                 image_writer_threads=8,
             )
         print("Dataset created:", self.lerobot_dataset)
-        # lerobot keeps the data and episode-metadata parquet files open until finalize(): without it the
-        # dataset on disk is unreadable. finish_recording() finalizes, this covers exits that skip it.
-        atexit.register(self.lerobot_dataset.finalize)
+        # lerobot keeps the data and episode-metadata parquet files open until finalize(): without it the dataset
+        # on disk is unreadable. save_episode() finalizes after every episode, this covers an unsaved last one.
+        atexit.register(self.finish_recording)
+
+    def _resume(self) -> LeRobotDataset:
+        return LeRobotDataset.resume(
+            repo_id=self.dataset_name, root=self.root_dataset_dir, image_writer_processes=0, image_writer_threads=16
+        )
 
     def start_episode(self):
         pass
@@ -141,10 +151,16 @@ class LeRobotDatasetRecorder(BaseDatasetRecorder):
     def save_episode(self):
         self.lerobot_dataset.save_episode()
         self._n_recorded_episodes += 1
+        # finalize and reopen after every episode so each saved episode is complete on disk (one data file per
+        # episode): otherwise a session that is killed (SIGKILL, closed terminal, driver crash) before
+        # finish_recording() leaves the whole dataset unreadable, including the episodes of earlier sessions.
+        self.lerobot_dataset.finalize()
+        self.lerobot_dataset = self._resume()
 
     def finish_recording(self):
         """Flush and close the parquet writers; no episodes can be recorded afterwards."""
         self.lerobot_dataset.finalize()
+        atexit.unregister(self.finish_recording)
 
     @property
     def n_recorded_episodes(self):

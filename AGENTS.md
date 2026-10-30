@@ -124,7 +124,7 @@ continue from the measured pose, and `collect_data` does not record that step. C
 - **Pinned lerobot API (v0.6.1, dataset format v3.0).** The submodule is `airo-ugent/lerobot` (a fork of
   huggingface/lerobot; lab changes go to its `airo/main` branch), pinned at the v0.6.1 release. Imports are
   `lerobot.datasets.lerobot_dataset`, the task is a frame key (`add_frame({..., "task": ""})`), a dataset being
-  recorded must be `finalize()`d (the recorder's `finish_recording()`) or it is unreadable, appending to an
+  written must be `finalize()`d or it is unreadable (the recorder does so after every episode, keep that), appending to an
   existing dataset goes through `LeRobotDataset.resume`, and episode boundaries are in
   `dataset.meta.episodes[i]["dataset_from_index" / "dataset_to_index"]`. Policies do not normalize themselves:
   `make_lerobot_policy` returns the policy plus the pre/post-processors saved with the checkpoint, and

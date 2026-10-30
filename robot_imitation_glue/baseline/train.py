@@ -104,7 +104,9 @@ def train(args) -> None:
     print(f"Training on {len(dataset)} frames.")
 
     device = torch.device(args.device) if args.device else torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    proprio_normalizer, action_normalizer = compute_normalization_stats(dataloader)
+    # a separate pass without drop_last, so every frame contributes to the statistics
+    stats_dataloader = DataLoader(dataset, batch_size=args.batch_size, shuffle=False, num_workers=args.num_workers)
+    proprio_normalizer, action_normalizer = compute_normalization_stats(stats_dataloader)
     proprio_normalizer, action_normalizer = proprio_normalizer.to(device), action_normalizer.to(device)
 
     policy = BCPolicy(
