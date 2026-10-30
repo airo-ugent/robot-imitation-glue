@@ -16,7 +16,7 @@ EVAL_SCENARIOS_DATASET_PATH = "datasets"
 EVAL_DATASET_NAME = "test_dataset"
 
 if __name__ == "__main__":
-    from lerobot.common.datasets.lerobot_dataset import LeRobotDataset
+    from lerobot.datasets.lerobot_dataset import LeRobotDataset
 
     from robot_imitation_glue.agents.airo_teleop_agent import make_spacemouse_agent
     from robot_imitation_glue.agents.openvla_agent import OpenVLAAgent

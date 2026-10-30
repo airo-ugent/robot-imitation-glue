@@ -17,6 +17,7 @@ import random
 from pathlib import Path
 
 import torch
+from lerobot.datasets.lerobot_dataset import LeRobotDataset
 from torch.utils.data import DataLoader, Dataset
 from tqdm import tqdm
 
@@ -27,11 +28,6 @@ from robot_imitation_glue.baseline.policy import (
     save_checkpoint,
     to_chw_float_image,
 )
-
-try:
-    from lerobot.common.datasets.lerobot_dataset import LeRobotDataset
-except ImportError:  # more recent lerobot versions moved the module
-    from lerobot.datasets.lerobot_dataset import LeRobotDataset
 
 
 class BCDataset(Dataset):

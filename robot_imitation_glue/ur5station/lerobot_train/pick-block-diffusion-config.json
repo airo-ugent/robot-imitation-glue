@@ -1,6 +1,7 @@
 {
     "dataset": {
         "repo_id": "pick-block",
+        "repo_type": "dataset",
         "root": "datasets/pick-cube-remapped/",
         "episodes": null,
         "image_transforms": {
@@ -62,17 +63,16 @@
         },
         "revision": null,
         "use_imagenet_stats": true,
-        "video_backend": "torchcodec"
+        "video_backend": "torchcodec",
+        "return_uint8": false,
+        "depth_output_unit": "mm",
+        "streaming": false,
+        "eval_split": 0.0
     },
     "env": null,
     "policy": {
         "type": "diffusion",
         "n_obs_steps": 2,
-        "normalization_mapping": {
-            "VISUAL": "MEAN_STD",
-            "STATE": "MIN_MAX",
-            "ACTION": "MIN_MAX"
-        },
         "input_features": {
             "observation.images.wrist_image": {
                 "type": "VISUAL",
@@ -107,10 +107,25 @@
         },
         "device": "cuda",
         "use_amp": false,
+        "use_peft": false,
+        "push_to_hub": false,
+        "repo_id": null,
+        "private": null,
+        "tags": null,
+        "license": null,
+        "pretrained_path": null,
+        "pretrained_revision": null,
         "horizon": 16,
         "n_action_steps": 8,
+        "normalization_mapping": {
+            "VISUAL": "MEAN_STD",
+            "STATE": "MIN_MAX",
+            "ACTION": "MIN_MAX"
+        },
         "drop_n_last_frames": 7,
         "vision_backbone": "resnet18",
+        "resize_shape": null,
+        "crop_ratio": 1.0,
         "crop_shape": [
             224,
             288
@@ -129,6 +144,7 @@
         "n_groups": 8,
         "diffusion_step_embed_dim": 128,
         "use_film_scale_modulation": true,
+        "gradient_checkpointing": false,
         "noise_scheduler_type": "DDIM",
         "num_train_timesteps": 100,
         "beta_schedule": "squaredcos_cap_v2",
@@ -138,6 +154,8 @@
         "clip_sample": true,
         "clip_sample_range": 1.0,
         "num_inference_steps": 16,
+        "compile_model": false,
+        "compile_mode": "reduce-overhead",
         "do_mask_loss_for_padding": false,
         "optimizer_lr": 0.0001,
         "optimizer_betas": [
@@ -149,14 +167,23 @@
         "scheduler_name": "cosine",
         "scheduler_warmup_steps": 500
     },
+    "reward_model": null,
+    "output_dir": null,
     "job_name": "pick-cube_diffusion",
     "resume": false,
     "seed": 2025,
+    "cudnn_deterministic": false,
     "num_workers": 8,
     "batch_size": 32,
+    "prefetch_factor": 4,
+    "persistent_workers": true,
+    "dataloader_multiprocessing_context": "spawn",
     "steps": 100000,
-    "eval_freq": 0,
+    "env_eval_freq": 20000,
     "log_freq": 200,
+    "eval_steps": 0,
+    "max_eval_samples": 0,
+    "tolerance_s": 0.0001,
     "save_checkpoint": true,
     "save_freq": 20000,
     "use_policy_training_preset": true,
@@ -179,7 +206,10 @@
     "eval": {
         "n_episodes": 50,
         "batch_size": 50,
-        "use_async_envs": false
+        "use_async_envs": false,
+        "recording": false,
+        "recording_repo_id": null,
+        "recording_private": false
     },
     "wandb": {
         "enable": true,
@@ -187,6 +217,20 @@
         "project": "lerobot",
         "entity": "tlips",
         "notes": null,
-        "run_id": null
-    }
+        "run_id": null,
+        "mode": null,
+        "add_tags": true
+    },
+    "peft": null,
+    "job": {
+        "target": null,
+        "image": "huggingface/lerobot-gpu:latest",
+        "timeout": "2d",
+        "detach": false,
+        "tags": []
+    },
+    "save_checkpoint_to_hub": false,
+    "sample_weighting": null,
+    "rename_map": {},
+    "checkpoint_path": null
 }

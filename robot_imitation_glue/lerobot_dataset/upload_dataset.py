@@ -4,7 +4,7 @@ import argparse
 import logging
 from pathlib import Path
 
-from lerobot.common.datasets.lerobot_dataset import LeRobotDataset
+from lerobot.datasets.lerobot_dataset import LeRobotDataset
 
 
 def upload_dataset(

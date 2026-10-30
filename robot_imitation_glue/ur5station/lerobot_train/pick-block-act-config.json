@@ -1,6 +1,7 @@
 {
     "dataset": {
-        "repo_id":null,
+        "repo_id": null,
+        "repo_type": "dataset",
         "root": null,
         "episodes": null,
         "image_transforms": {
@@ -62,17 +63,16 @@
         },
         "revision": null,
         "use_imagenet_stats": true,
-        "video_backend": "torchcodec"
+        "video_backend": "torchcodec",
+        "return_uint8": false,
+        "depth_output_unit": "mm",
+        "streaming": false,
+        "eval_split": 0.0
     },
     "env": null,
     "policy": {
         "type": "act",
         "n_obs_steps": 1,
-        "normalization_mapping": {
-            "VISUAL": "MEAN_STD",
-            "STATE": "MEAN_STD",
-            "ACTION": "MEAN_STD"
-        },
         "input_features": {
             "observation.images.wrist_image": {
                 "type": "VISUAL",
@@ -107,11 +107,24 @@
         },
         "device": "cuda",
         "use_amp": false,
+        "use_peft": false,
+        "push_to_hub": false,
+        "repo_id": null,
+        "private": null,
+        "tags": null,
+        "license": null,
+        "pretrained_path": null,
+        "pretrained_revision": null,
         "chunk_size": 20,
         "n_action_steps": 8,
+        "normalization_mapping": {
+            "VISUAL": "MEAN_STD",
+            "STATE": "MEAN_STD",
+            "ACTION": "MEAN_STD"
+        },
         "vision_backbone": "resnet18",
         "pretrained_backbone_weights": "ResNet18_Weights.IMAGENET1K_V1",
-        "replace_final_stride_with_dilation": false,
+        "replace_final_stride_with_dilation": 0,
         "pre_norm": false,
         "dim_model": 512,
         "n_heads": 8,
@@ -129,14 +142,23 @@
         "optimizer_weight_decay": 0.0001,
         "optimizer_lr_backbone": 1e-05
     },
+    "reward_model": null,
+    "output_dir": null,
     "job_name": "pick-block-act",
     "resume": false,
     "seed": 2025,
+    "cudnn_deterministic": false,
     "num_workers": 4,
     "batch_size": 8,
+    "prefetch_factor": 4,
+    "persistent_workers": true,
+    "dataloader_multiprocessing_context": "spawn",
     "steps": 200000,
-    "eval_freq": 20000,
+    "env_eval_freq": 20000,
     "log_freq": 200,
+    "eval_steps": 0,
+    "max_eval_samples": 0,
+    "tolerance_s": 0.0001,
     "save_checkpoint": true,
     "save_freq": 40000,
     "use_policy_training_preset": true,
@@ -155,7 +177,10 @@
     "eval": {
         "n_episodes": 50,
         "batch_size": 50,
-        "use_async_envs": false
+        "use_async_envs": false,
+        "recording": false,
+        "recording_repo_id": null,
+        "recording_private": false
     },
     "wandb": {
         "enable": true,
@@ -163,6 +188,20 @@
         "project": "lerobot",
         "entity": null,
         "notes": null,
-        "run_id": null
-    }
+        "run_id": null,
+        "mode": null,
+        "add_tags": true
+    },
+    "peft": null,
+    "job": {
+        "target": null,
+        "image": "huggingface/lerobot-gpu:latest",
+        "timeout": "2d",
+        "detach": false,
+        "tags": []
+    },
+    "save_checkpoint_to_hub": false,
+    "sample_weighting": null,
+    "rename_map": {},
+    "checkpoint_path": null
 }

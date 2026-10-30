@@ -4,7 +4,7 @@ import cv2
 import loguru
 import numpy as np
 import rerun as rr
-from lerobot.common.datasets.lerobot_dataset import LeRobotDataset
+from lerobot.datasets.lerobot_dataset import LeRobotDataset
 
 from robot_imitation_glue.action_spaces import (
     DEFAULT_MAX_JOINT_DELTA,
@@ -150,8 +150,7 @@ def eval(  # noqa: C901
 
             if eval_dataset_episode > -1:
                 # get initial scene image
-                print(eval_dataset.episode_data_index)
-                step_idx = eval_dataset.episode_data_index["from"][eval_dataset_episode].item()
+                step_idx = eval_dataset.meta.episodes[eval_dataset_episode]["dataset_from_index"]
                 initial_scene_image = eval_dataset[step_idx][eval_dataset_image_key]
 
                 # convert to numpy array of uint8 values

@@ -2,7 +2,7 @@ import numpy as np
 import pytest
 
 pytest.importorskip("ur_analytic_ik")
-pytest.importorskip("lerobot.common.datasets.lerobot_dataset")
+pytest.importorskip("lerobot.datasets.lerobot_dataset")
 torch = pytest.importorskip("torch")
 
 from ur_analytic_ik import ur5e  # noqa: E402

@@ -1,8 +1,9 @@
+import atexit
 from pathlib import Path
 
 import numpy as np
 import torch
-from lerobot.common.datasets.lerobot_dataset import LeRobotDataset
+from lerobot.datasets.lerobot_dataset import LeRobotDataset
 
 from robot_imitation_glue.base import BaseDatasetRecorder
 
@@ -81,9 +82,10 @@ class LeRobotDatasetRecorder(BaseDatasetRecorder):
 
         if self.root_dataset_dir.exists():
             print(f"Dataset {dataset_name} already exists. Loading it.")
-            self.lerobot_dataset = LeRobotDataset(repo_id=dataset_name, root=self.root_dataset_dir)
-            self.lerobot_dataset.start_image_writer(num_processes=0, num_threads=16)
-            self._n_recorded_episodes = len(self.lerobot_dataset.episode_data_index["from"])
+            self.lerobot_dataset = LeRobotDataset.resume(
+                repo_id=dataset_name, root=self.root_dataset_dir, image_writer_processes=0, image_writer_threads=16
+            )
+            self._n_recorded_episodes = self.lerobot_dataset.meta.total_episodes
             print(f"Loaded {self._n_recorded_episodes} episodes.")
         else:
             print(f"Dataset {dataset_name} does not exist. Creating it.")
@@ -97,6 +99,9 @@ class LeRobotDatasetRecorder(BaseDatasetRecorder):
                 image_writer_threads=8,
             )
         print("Dataset created:", self.lerobot_dataset)
+        # lerobot keeps the data and episode-metadata parquet files open until finalize(): without it the
+        # dataset on disk is unreadable. finish_recording() finalizes, this covers exits that skip it.
+        atexit.register(self.lerobot_dataset.finalize)
 
     def start_episode(self):
         pass
@@ -107,6 +112,7 @@ class LeRobotDatasetRecorder(BaseDatasetRecorder):
             "next.reward": torch.tensor([0.0]),
             "next.success": torch.tensor([False]),
             "seed": torch.tensor([0]),  # TODO: store the seed
+            "task": "",
         }
         for key in self.image_keys:
             lerobot_key = self.key_mapping_dict.get(key, key)
@@ -114,16 +120,14 @@ class LeRobotDatasetRecorder(BaseDatasetRecorder):
 
         for key in self.state_keys:
             frame[key] = torch.tensor(obs[key])
-        # the pinned lerobot takes the task as an argument, not as a frame key (add_frame(frame, task, timestamp))
-        self.lerobot_dataset.add_frame(frame, task="")
+        self.lerobot_dataset.add_frame(frame)
 
     def set_episode_success(self, success):
         """Episode-level label: sets next.success of *all* frames in the current episode buffer (see
         BaseDatasetRecorder.set_episode_success)."""
-        # the pinned lerobot (lerobot.common) keeps the unsaved episode in `episode_buffer`; it is None on a
-        # dataset that was loaded from disk until the first add_frame(), i.e. there is nothing to label.
-        episode_buffer = self.lerobot_dataset.episode_buffer
-        if episode_buffer is None:
+        # lerobot keeps the unsaved episode in the writer's `episode_buffer`
+        episode_buffer = self.lerobot_dataset.writer.episode_buffer
+        if not self.lerobot_dataset.has_pending_frames():
             return
         # add_frame() converts the torch tensors it is handed to numpy, so write numpy here too:
         # every buffer entry then has the same type whether it was set live or patched in hindsight.
@@ -131,12 +135,7 @@ class LeRobotDatasetRecorder(BaseDatasetRecorder):
 
     def delete_episode(self):
         """Discard the current episode buffer (and its temporary images); saved episodes are untouched."""
-        if self.lerobot_dataset.episode_buffer is None:
-            return
-        # clear_episode_buffer() removes this episode's image dir but, unlike save_episode(), does not
-        # wait for the async image writer first, so drain it here to avoid racing the in-flight writes.
-        if self.lerobot_dataset.image_writer is not None:
-            self.lerobot_dataset.image_writer.wait_until_done()
+        # clear_episode_buffer() waits for the async image writer before it removes this episode's image dirs
         self.lerobot_dataset.clear_episode_buffer()
 
     def save_episode(self):
@@ -144,7 +143,8 @@ class LeRobotDatasetRecorder(BaseDatasetRecorder):
         self._n_recorded_episodes += 1
 
     def finish_recording(self):
-        pass
+        """Flush and close the parquet writers; no episodes can be recorded afterwards."""
+        self.lerobot_dataset.finalize()
 
     @property
     def n_recorded_episodes(self):
@@ -188,4 +188,4 @@ if __name__ == "__main__":
 
     dataset = LeRobotDataset(repo_id="test_dataset", root=Path("datasets"), episodes=[0, 1])
     print(f"Loaded {len(dataset)} steps.")
-    print(dataset.episode_data_index)
+    print(dataset.meta.episodes["dataset_from_index"], dataset.meta.episodes["dataset_to_index"])

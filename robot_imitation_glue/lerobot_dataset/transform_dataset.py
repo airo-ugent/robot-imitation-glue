@@ -3,7 +3,7 @@ import shutil
 from typing import Callable, Dict, Optional
 
 import tqdm
-from lerobot.common.datasets.lerobot_dataset import LeRobotDataset
+from lerobot.datasets.lerobot_dataset import LeRobotDataset
 
 
 def transform_dataset(  # noqa: C901
@@ -31,7 +31,8 @@ def transform_dataset(  # noqa: C901
         root_dir: Path to the original LeRobot dataset. Either repo_id or root_dir must be provided.
         new_root_dir: Path to save the transformed LeRobot dataset.
         new_repo_id: Repository ID for the new dataset (defaults to original repo_id + '_transformed').
-        transform_fn: Function that takes a frame dictionary and returns a transformed frame dictionary.
+        transform_fn: Function that takes a frame dictionary and returns a transformed frame dictionary. The frame
+            holds the 'task' string, which lerobot requires in every frame, so keep it in the returned frame.
         transform_features_fn: Optional function that takes a features dictionary and returns a transformed features dictionary.
         features_to_drop: List of feature names to drop from the new dataset.
         use_videos: Whether to use videos for the new dataset.
@@ -72,9 +73,8 @@ def transform_dataset(  # noqa: C901
 
     dataset = LeRobotDataset(repo_id=repo_id, root=root_dir)
     if episodes_to_drop:
-        n_episodes = len(dataset.episode_data_index["from"])
-        episodes_to_include = [i for i in range(n_episodes)]
-        episodes_to_include = set(episodes_to_include).difference(set(episodes_to_drop))
+        n_episodes = dataset.meta.total_episodes
+        episodes_to_include = sorted(set(range(n_episodes)).difference(episodes_to_drop))
         print(f"dropping specified episodes, episodes to include = {episodes_to_include}")
         dataset = LeRobotDataset(repo_id=repo_id, root=root_dir, episodes=episodes_to_include)
 
@@ -106,42 +106,46 @@ def transform_dataset(  # noqa: C901
         image_writer_threads=image_writer_threads,
     )
 
-    # Process each episode in the old dataset
-    episode_indices = dataset.episode_data_index
+    # Process the frames of the (selected) episodes in order, saving an episode whenever the source episode changes.
+    # dataset[i] indexes the selected frames only, so this does not need the absolute frame indices of the episodes.
     if verbose:
-        print(f"Processing {len(episode_indices['from'])} episodes")
+        print(f"Processing {dataset.num_episodes} episodes")
 
-    for ep_idx in tqdm.tqdm(range(len(episode_indices["from"])), disable=not verbose):
-        from_idx, to_idx = episode_indices["from"][ep_idx], episode_indices["to"][ep_idx]
-        for idx in range(from_idx, to_idx):
-            frame = dataset[idx]
+    current_episode = None
+    for idx in tqdm.tqdm(range(len(dataset)), disable=not verbose):
+        frame = dataset[idx]
+        episode_index = int(frame["episode_index"])
+        if current_episode is not None and episode_index != current_episode:
+            new_dataset.save_episode()
+        current_episode = episode_index
 
-            # these are auto-generated, so remove them from the frame
-            features_to_drop_list = ["index", "timestamp", "frame_index", "episode_index", "task_index"]
-            if features_to_drop:
-                features_to_drop_list.extend(features_to_drop)
-            frame = {k: v for k, v in frame.items() if k not in features_to_drop_list}
-            # the task is not a feature, the pinned lerobot takes it as an argument of add_frame
-            task = frame.pop("task")
+        # these are auto-generated, so remove them from the frame
+        features_to_drop_list = ["index", "timestamp", "frame_index", "episode_index", "task_index"]
+        if features_to_drop:
+            features_to_drop_list.extend(features_to_drop)
+        frame = {k: v for k, v in frame.items() if k not in features_to_drop_list}
 
-            for key, value in frame.items():
-                # drop auto-generated meta data
-                # convert 0D tensors to 1D tensors
-                if hasattr(value, "shape") and len(value.shape) == 0:
-                    value = value.unsqueeze(0)
-                    frame[key] = value
-                # make images channel-last again
-                if hasattr(value, "shape") and len(value.shape) == 3:
-                    value = value.permute(1, 2, 0)
-                    frame[key] = value
+        for key, value in frame.items():
+            # drop auto-generated meta data
+            # convert 0D tensors to 1D tensors
+            if hasattr(value, "shape") and len(value.shape) == 0:
+                value = value.unsqueeze(0)
+                frame[key] = value
+            # make images channel-last again
+            if hasattr(value, "shape") and len(value.shape) == 3:
+                value = value.permute(1, 2, 0)
+                frame[key] = value
 
-            # Apply the transformation function
-            new_frame = transform_fn(frame)
+        # Apply the transformation function
+        new_frame = transform_fn(frame)
 
-            # Add the transformed frame to the new dataset
-            new_dataset.add_frame(new_frame, task=task)
+        # Add the transformed frame to the new dataset
+        new_dataset.add_frame(new_frame)
 
+    if current_episode is not None:
         new_dataset.save_episode()
+    # flushes and closes the parquet writers, the new dataset is not readable before this
+    new_dataset.finalize()
 
     if verbose:
         print(f"Dataset transformation complete. New dataset saved at {new_root_dir}")

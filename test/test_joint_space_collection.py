@@ -358,7 +358,7 @@ def test_joint_target_is_safe():
 
 
 def test_joint_space_eval(monkeypatch):
-    pytest.importorskip("lerobot.common.datasets.lerobot_dataset")
+    pytest.importorskip("lerobot.datasets.lerobot_dataset")
     import robot_imitation_glue.eval_agent as eval_agent_module
 
     holder = {}
