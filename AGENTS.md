@@ -130,6 +130,12 @@ continue from the measured pose, and `collect_data` does not record that step. C
   `make_lerobot_policy` returns the policy plus the pre/post-processors saved with the checkpoint, and
   `LerobotAgent` needs both. Bump the submodule and `uv.lock` together. The `ur5station/lerobot_train/*.json`
   configs are full `TrainPipelineConfig` dumps for this version (`lerobot-train --config_path=...`).
+- **UMI-style relative actions** (`policy.use_relative_actions`, diffusion only; `SE3RelativeActionsProcessorStep` in
+  the airo-ugent lerobot fork): the dataset keeps absolute EEF targets `[xyz, rot6d, ...]` with a state that starts
+  with `[xyz, extrinsic xyz euler]`, the preprocessor re-expresses each training chunk in the frame of the latest
+  observed pose, and `LerobotAgent` converts predictions back to absolute with the pose the chunk was predicted
+  from. The dataset's action stats must describe the relative chunks: run
+  `lerobot_dataset/relative_action_stats.py` with the policy's horizon / n_obs_steps / drop_n_last_frames first.
 - **Recording into an existing dir appends** to that dataset. Use a fresh directory for a fresh dataset.
 - **Station scripts take CLI arguments whose defaults are constants at the top of the script**
   (checkpoints, dataset roots, ports), so they can be run as-is after editing those constants. Keep that
