@@ -5,6 +5,8 @@ import torch
 from lerobot.configs.policies import PreTrainedConfig
 from lerobot.datasets.lerobot_dataset import LeRobotDataset
 from lerobot.policies.factory import get_policy_class, make_pre_post_processors
+from lerobot.processor import relative_to_absolute_pose_actions
+from lerobot.utils.constants import ACTION, OBS_STATE
 from loguru import logger
 
 from robot_imitation_glue.base import BaseAgent
@@ -46,6 +48,11 @@ class LerobotAgent(BaseAgent):
 
         policy_preprocessor / policy_postprocessor are the processor pipelines saved with the checkpoint (see
         `make_lerobot_policy`), they (un)normalize around `policy.select_action`.
+
+        Policies trained with UMI-style relative actions (`use_relative_actions`, see lerobot's
+        se3_relative_action_processor.py) predict every action of a chunk in the frame of the pose observed when
+        the chunk was predicted. That pose is cached here and the actions are converted back to absolute
+        [xyz, rot6d, ...] targets, so the agent's output has the same format for both kinds of policies.
         """
         super().__init__()
         self.policy = policy
@@ -53,6 +60,8 @@ class LerobotAgent(BaseAgent):
         self.observation_preprocessor = observation_preprocessor
         self.policy_preprocessor = policy_preprocessor
         self.policy_postprocessor = policy_postprocessor
+        self.relative_actions = bool(getattr(policy.config, "use_relative_actions", False))
+        self._chunk_reference_state = None
 
     def get_action(self, observation):
         start_time = time.time()
@@ -60,10 +69,16 @@ class LerobotAgent(BaseAgent):
         end_time = time.time()
         logger.info(f"Lerobot agent observation preprocessor took {((end_time - start_time)*1000):.2f} ms")
         observation = {k: v.to(self.device) for k, v in observation.items()}
+        if self.relative_actions and len(self.policy._queues[ACTION]) == 0:
+            # this call predicts a new chunk from this observation: its raw (unnormalized) pose is the reference
+            # of every action of that chunk, as in training (the latest observation of the window)
+            self._chunk_reference_state = observation[OBS_STATE].detach().cpu().clone()
         with torch.no_grad():
             time_start = time.time()
             action = self.policy.select_action(self.policy_preprocessor(observation))
             action = self.policy_postprocessor(action)
+            if self.relative_actions:
+                action = relative_to_absolute_pose_actions(action.cpu(), self._chunk_reference_state)
             time_end = time.time()
             logger.info(f"Lerobot agent inference took {((time_end - time_start)*1000):.2f} ms")
         return action.squeeze(0).cpu().numpy()
@@ -72,6 +87,7 @@ class LerobotAgent(BaseAgent):
         self.policy.reset()
         self.policy_preprocessor.reset()
         self.policy_postprocessor.reset()
+        self._chunk_reference_state = None
 
 
 if __name__ == "__main__":
