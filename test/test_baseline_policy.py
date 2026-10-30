@@ -4,13 +4,13 @@ import pytest
 torch = pytest.importorskip("torch")
 pytest.importorskip("torchvision")
 
-from robot_imitation_glue.baseline.agent import BaselineAgent  # noqa: E402
+from robot_imitation_glue.baseline.agent import BaselineAgent, preprocess_image  # noqa: E402
 from robot_imitation_glue.baseline.policy import (  # noqa: E402
     PROPRIO_CONSTANT_STD,
     BCPolicy,
     Normalizer,
+    crop_image,
     load_checkpoint,
-    random_shift,
     save_checkpoint,
     to_chw_float_image,
 )
@@ -59,18 +59,17 @@ def test_action_normalizer_keeps_small_stds():
     assert torch.allclose(normalizer.std, torch.tensor([1e-4, 5e-3]))
 
 
-def test_random_shift_keeps_size_and_shifts_content():
-    images = torch.rand(8, 3, 16, 16)
-    assert torch.equal(random_shift(images, 0), images)
-    shifted = random_shift(images, 2)
-    assert shifted.shape == images.shape
-    # every output is the input translated by at most 2 pixels: the inner 12x12 region appears unchanged in it
-    for image, out in zip(images, shifted):
-        assert any(
-            torch.equal(out[:, 2 + dy : 14 + dy, 2 + dx : 14 + dx], image[:, 2:14, 2:14])
-            for dy in range(-2, 3)
-            for dx in range(-2, 3)
-        )
+def test_crop_is_random_in_training_and_centered_at_inference():
+    image = torch.arange(20 * 40).float().view(1, 20, 40)
+    assert torch.equal(crop_image(image, 1.0, random_crop=True), image)
+
+    center = crop_image(image, 0.5, random_crop=False)
+    assert torch.equal(center, image[:, 5:15, 10:30])
+
+    torch.manual_seed(0)
+    crops = [crop_image(image, 0.5, random_crop=True) for _ in range(20)]
+    assert all(crop.shape == (1, 10, 20) for crop in crops)  # same size, so the same scale as the center crop
+    assert len({(int(crop[0, 0, 0]) // 40, int(crop[0, 0, 0]) % 40) for crop in crops}) > 1  # different positions
 
 
 def test_agent_get_action_on_synthetic_observation(tmp_path):
@@ -83,8 +82,9 @@ def test_agent_get_action_on_synthetic_observation(tmp_path):
         Normalizer(torch.zeros(ACTION_DIM), torch.ones(ACTION_DIM)),
         IMAGE_SIZE,
     )
-    loaded_policy, _, _, image_size = load_checkpoint(checkpoint_path)
+    loaded_policy, _, _, image_size, crop_ratio = load_checkpoint(checkpoint_path)
     assert image_size == IMAGE_SIZE
+    assert crop_ratio == 1.0  # the default, also for checkpoints saved before the crop augmentation
     assert loaded_policy.camera_keys == CAMERA_KEYS
 
     agent = BaselineAgent(
@@ -102,6 +102,20 @@ def test_agent_get_action_on_synthetic_observation(tmp_path):
     assert isinstance(action, np.ndarray)
     assert action.shape == (ACTION_DIM,)
     assert np.all(np.isfinite(action))
+
+
+def test_agent_center_crops_with_the_crop_ratio_of_the_checkpoint(tmp_path):
+    checkpoint_path = tmp_path / "policy.ckpt"
+    normalizers = [Normalizer(torch.zeros(d), torch.ones(d)) for d in (PROPRIO_DIM, ACTION_DIM)]
+    save_checkpoint(checkpoint_path, make_policy(), *normalizers, IMAGE_SIZE, crop_ratio=0.5)
+    agent = BaselineAgent(checkpoint_path, {"img1": CAMERA_KEYS[0], "img2": CAMERA_KEYS[1]}, "state")
+    assert agent.crop_ratio == 0.5
+
+    # the policy input is the resized center of the image: an image that is only non-zero outside its center
+    # half gives an all-zero input
+    image = np.full((96, 128, 3), 255, dtype=np.uint8)
+    image[24:72, 32:96] = 0
+    assert preprocess_image(image, IMAGE_SIZE, agent.crop_ratio).abs().max() == 0
 
 
 def test_image_scaling_depends_on_dtype_not_content():

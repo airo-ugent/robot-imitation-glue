@@ -42,15 +42,19 @@ def resize_image(image: torch.Tensor, image_size: int) -> torch.Tensor:
     return nn.functional.interpolate(image, size=(image_size, image_size), mode="bilinear", antialias=True)
 
 
-def random_shift(images: torch.Tensor, pad: int) -> torch.Tensor:
-    """training-only augmentation: shift each (3,H,W) image of a (B,3,H,W) batch by up to `pad` pixels (replicate
-    padding + random crop, as in DrQ). The image size is unchanged, so inference needs no matching step."""
-    if pad == 0:
-        return images
-    _, _, height, width = images.shape
-    padded = nn.functional.pad(images, (pad, pad, pad, pad), mode="replicate")
-    offsets = torch.randint(0, 2 * pad + 1, (images.shape[0], 2)).tolist()
-    return torch.stack([padded[i, :, y : y + height, x : x + width] for i, (y, x) in enumerate(offsets)])
+def crop_image(image: torch.Tensor, crop_ratio: float, random_crop: bool) -> torch.Tensor:
+    """crop a (..., H, W) image to `crop_ratio` of its height and width, before resizing. As in Diffusion Policy:
+    a random crop during training (augmentation) and a center crop at inference, so both see the same scale."""
+    if crop_ratio >= 1.0:
+        return image
+    height, width = image.shape[-2:]
+    crop_height, crop_width = round(height * crop_ratio), round(width * crop_ratio)
+    if random_crop:
+        top = int(torch.randint(0, height - crop_height + 1, ()))
+        left = int(torch.randint(0, width - crop_width + 1, ()))
+    else:
+        top, left = (height - crop_height) // 2, (width - crop_width) // 2
+    return image[..., top : top + crop_height, left : left + crop_width]
 
 
 class Normalizer(nn.Module):
@@ -142,13 +146,19 @@ class BCPolicy(nn.Module):
 
 
 def save_checkpoint(
-    path, policy: nn.Module, proprio_normalizer: Normalizer, action_normalizer: Normalizer, image_size
+    path,
+    policy: nn.Module,
+    proprio_normalizer: Normalizer,
+    action_normalizer: Normalizer,
+    image_size,
+    crop_ratio: float = 1.0,
 ):
-    """save the weights, the model config and the normalization statistics in a single file."""
+    """save the weights, the model config, the normalization statistics and the image preprocessing in one file."""
     torch.save(
         {
             "config": policy.config,
             "image_size": image_size,
+            "crop_ratio": crop_ratio,
             "model_state_dict": policy.state_dict(),
             "proprio_normalizer_state_dict": proprio_normalizer.state_dict(),
             "action_normalizer_state_dict": action_normalizer.state_dict(),
@@ -158,7 +168,7 @@ def save_checkpoint(
 
 
 def load_checkpoint(path, device="cpu", policy_class=BCPolicy):
-    """returns (policy, proprio_normalizer, action_normalizer, image_size), all on the requested device.
+    """returns (policy, proprio_normalizer, action_normalizer, image_size, crop_ratio), on the requested device.
 
     `policy_class` is constructed from the config stored in the checkpoint, so other policies with the same
     checkpoint format (e.g. `dit_policy.DiTPolicy`) can reuse this loader."""
@@ -176,4 +186,6 @@ def load_checkpoint(path, device="cpu", policy_class=BCPolicy):
     action_normalizer = Normalizer(torch.zeros(action_dim), torch.ones(action_dim))
     action_normalizer.load_state_dict(checkpoint["action_normalizer_state_dict"])
 
-    return policy, proprio_normalizer.to(device), action_normalizer.to(device), checkpoint["image_size"]
+    # checkpoints from before the crop augmentation were trained on uncropped images
+    crop_ratio = checkpoint.get("crop_ratio", 1.0)
+    return policy, proprio_normalizer.to(device), action_normalizer.to(device), checkpoint["image_size"], crop_ratio

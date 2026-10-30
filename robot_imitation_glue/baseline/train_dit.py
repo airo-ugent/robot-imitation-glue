@@ -23,7 +23,7 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 from robot_imitation_glue.baseline.dit_policy import DiTPolicy
-from robot_imitation_glue.baseline.policy import PROPRIO_CONSTANT_STD, Normalizer, random_shift, save_checkpoint
+from robot_imitation_glue.baseline.policy import PROPRIO_CONSTANT_STD, Normalizer, save_checkpoint
 from robot_imitation_glue.baseline.train import BCDataset, LeRobotDataset, set_seed
 
 
@@ -35,8 +35,10 @@ class DiTDataset(BCDataset):
     chunk never mixes actions of two episodes and the mask marks exactly the in-episode timesteps.
     """
 
-    def __init__(self, lerobot_dataset, image_keys, state_key, action_key, image_size, prediction_horizon: int):
-        super().__init__(lerobot_dataset, image_keys, state_key, action_key, image_size)
+    def __init__(
+        self, lerobot_dataset, image_keys, state_key, action_key, image_size, prediction_horizon: int, crop_ratio=1.0
+    ):
+        super().__init__(lerobot_dataset, image_keys, state_key, action_key, image_size, crop_ratio)
         self.prediction_horizon = prediction_horizon
 
     def __getitem__(self, idx: int):
@@ -62,7 +64,13 @@ def make_dataset(args) -> DiTDataset:
     delta_timestamps = {args.action_key: [i / fps for i in range(args.prediction_horizon)]}
     lerobot_dataset = LeRobotDataset(**kwargs, delta_timestamps=delta_timestamps)
     return DiTDataset(
-        lerobot_dataset, args.image_keys, args.state_key, args.action_key, args.image_size, args.prediction_horizon
+        lerobot_dataset,
+        args.image_keys,
+        args.state_key,
+        args.action_key,
+        args.image_size,
+        args.prediction_horizon,
+        args.crop_ratio,
     )
 
 
@@ -138,10 +146,7 @@ def train(args) -> None:
 
         pbar = tqdm(dataloader, desc=f"Epoch {epoch}/{args.epochs}", leave=False)
         for images, proprio, action, mask in pbar:
-            images = {
-                key: random_shift(value.to(device, non_blocking=True), args.random_shift)
-                for key, value in images.items()
-            }
+            images = {key: value.to(device, non_blocking=True) for key, value in images.items()}
             proprio = proprio_normalizer.normalize(proprio.to(device, non_blocking=True))
             action = action_normalizer.normalize(action.to(device, non_blocking=True))
             mask = mask.to(device, non_blocking=True)
@@ -163,7 +168,9 @@ def train(args) -> None:
 
         if epoch % args.save_every == 0 or epoch == args.epochs:
             checkpoint_path = output_dir / "policy.ckpt"
-            save_checkpoint(checkpoint_path, policy, proprio_normalizer, action_normalizer, args.image_size)
+            save_checkpoint(
+                checkpoint_path, policy, proprio_normalizer, action_normalizer, args.image_size, args.crop_ratio
+            )
             print(f"Saved checkpoint to {checkpoint_path}")
 
     print("Training complete.")
@@ -181,10 +188,11 @@ def parse_args():
 
     parser.add_argument("--image-size", type=int, default=128, help="Images are resized to this square resolution")
     parser.add_argument(
-        "--random-shift",
-        type=int,
-        default=4,
-        help="Training augmentation: shift the resized images by up to this many pixels, 0 disables",
+        "--crop-ratio",
+        type=float,
+        default=0.9,
+        help="Images are cropped to this fraction of their height and width before resizing: a random crop during "
+        "training (augmentation), a center crop at inference. 1 disables",
     )
     parser.add_argument("--prediction-horizon", type=int, default=16, help="Number of future actions to predict")
     parser.add_argument("--hidden-dim", type=int, default=256)

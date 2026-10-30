@@ -25,7 +25,7 @@ from robot_imitation_glue.baseline.policy import (
     PROPRIO_CONSTANT_STD,
     BCPolicy,
     Normalizer,
-    random_shift,
+    crop_image,
     resize_image,
     save_checkpoint,
     to_chw_float_image,
@@ -35,12 +35,21 @@ from robot_imitation_glue.baseline.policy import (
 class BCDataset(Dataset):
     """Wrap a LeRobotDataset to expose (images, proprioception, action) samples for the baseline policy."""
 
-    def __init__(self, lerobot_dataset, image_keys: list[str], state_key: str, action_key: str, image_size: int):
+    def __init__(
+        self,
+        lerobot_dataset,
+        image_keys: list[str],
+        state_key: str,
+        action_key: str,
+        image_size: int,
+        crop_ratio: float = 1.0,
+    ):
         self.dataset = lerobot_dataset
         self.image_keys = image_keys
         self.state_key = state_key
         self.action_key = action_key
         self.image_size = image_size
+        self.crop_ratio = crop_ratio
 
         for key in [*image_keys, state_key, action_key]:
             if key not in self.dataset.features:
@@ -51,11 +60,13 @@ class BCDataset(Dataset):
         return len(self.dataset)
 
     def preprocess_images(self, sample: dict) -> dict[str, torch.Tensor]:
-        """the camera images of a lerobot sample as (3, image_size, image_size) float tensors in [0,1]."""
-        return {
-            key: resize_image(to_chw_float_image(sample[key]).unsqueeze(0), self.image_size).squeeze(0)
-            for key in self.image_keys
-        }
+        """the camera images of a lerobot sample, randomly cropped (training augmentation, the agents center crop)
+        and resized to (3, image_size, image_size) float tensors in [0,1]."""
+        images = {}
+        for key in self.image_keys:
+            image = crop_image(to_chw_float_image(sample[key]), self.crop_ratio, random_crop=True)
+            images[key] = resize_image(image.unsqueeze(0), self.image_size).squeeze(0)
+        return images
 
     def __getitem__(self, idx: int):
         sample = self.dataset[idx]
@@ -95,7 +106,9 @@ def train(args) -> None:
     lerobot_dataset = LeRobotDataset(
         repo_id="local", root=str(args.dataset_root), download_videos=False, video_backend=args.video_backend
     )
-    dataset = BCDataset(lerobot_dataset, args.image_keys, args.state_key, args.action_key, args.image_size)
+    dataset = BCDataset(
+        lerobot_dataset, args.image_keys, args.state_key, args.action_key, args.image_size, args.crop_ratio
+    )
     dataloader = DataLoader(
         dataset,
         batch_size=args.batch_size,
@@ -126,10 +139,7 @@ def train(args) -> None:
 
         pbar = tqdm(dataloader, desc=f"Epoch {epoch}/{args.epochs}", leave=False)
         for images, proprio, action in pbar:
-            images = {
-                key: random_shift(value.to(device, non_blocking=True), args.random_shift)
-                for key, value in images.items()
-            }
+            images = {key: value.to(device, non_blocking=True) for key, value in images.items()}
             proprio = proprio_normalizer.normalize(proprio.to(device, non_blocking=True))
             action = action_normalizer.normalize(action.to(device, non_blocking=True))
 
@@ -146,7 +156,9 @@ def train(args) -> None:
 
         if epoch % args.save_every == 0 or epoch == args.epochs:
             checkpoint_path = output_dir / "policy.ckpt"
-            save_checkpoint(checkpoint_path, policy, proprio_normalizer, action_normalizer, args.image_size)
+            save_checkpoint(
+                checkpoint_path, policy, proprio_normalizer, action_normalizer, args.image_size, args.crop_ratio
+            )
             print(f"Saved checkpoint to {checkpoint_path}")
 
     print("Training complete.")
@@ -164,10 +176,11 @@ def parse_args():
 
     parser.add_argument("--image-size", type=int, default=128, help="Images are resized to this square resolution")
     parser.add_argument(
-        "--random-shift",
-        type=int,
-        default=4,
-        help="Training augmentation: shift the resized images by up to this many pixels, 0 disables",
+        "--crop-ratio",
+        type=float,
+        default=0.9,
+        help="Images are cropped to this fraction of their height and width before resizing: a random crop during "
+        "training (augmentation), a center crop at inference. 1 disables",
     )
     parser.add_argument("--epochs", type=int, default=100)
     parser.add_argument("--batch-size", type=int, default=32)
