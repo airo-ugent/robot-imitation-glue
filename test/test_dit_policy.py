@@ -53,7 +53,7 @@ def make_agent(tmp_path, **kwargs):
         Normalizer(torch.zeros(ACTION_DIM), torch.ones(ACTION_DIM)),
         IMAGE_SIZE,
     )
-    loaded_policy, _, _, image_size = load_checkpoint(checkpoint_path, policy_class=DiTPolicy)
+    loaded_policy, _, _, image_size, _ = load_checkpoint(checkpoint_path, policy_class=DiTPolicy)
     assert image_size == IMAGE_SIZE
     assert loaded_policy.camera_keys == CAMERA_KEYS
     return DiTAgent(

@@ -9,12 +9,15 @@ import torch
 from loguru import logger
 
 from robot_imitation_glue.base import BaseAgent
-from robot_imitation_glue.baseline.policy import load_checkpoint, resize_image, to_chw_float_image
+from robot_imitation_glue.baseline.policy import crop_image, load_checkpoint, resize_image, to_chw_float_image
 
 
-def preprocess_image(image: np.ndarray, image_size: int) -> torch.Tensor:
-    """converts a single HWC (or CHW) uint8/float image to a (1,3,image_size,image_size) float tensor in [0,1]."""
+def preprocess_image(image: np.ndarray, image_size: int, crop_ratio: float = 1.0) -> torch.Tensor:
+    """converts a single HWC (or CHW) uint8/float image to a (1,3,image_size,image_size) float tensor in [0,1].
+
+    Center crops to `crop_ratio` first: the inference counterpart of the random crop of training."""
     tensor = to_chw_float_image(torch.from_numpy(np.ascontiguousarray(image)))
+    tensor = crop_image(tensor, crop_ratio, random_crop=False)
     return resize_image(tensor.unsqueeze(0), image_size)
 
 
@@ -28,8 +31,8 @@ class BaselineAgent(BaseAgent):
     def __init__(self, checkpoint_path, camera_key_mapping: dict[str, str], state_key: str, device: str = "cpu"):
         super().__init__()
         self.device = device
-        self.policy, self.proprio_normalizer, self.action_normalizer, self.image_size = load_checkpoint(
-            checkpoint_path, device
+        self.policy, self.proprio_normalizer, self.action_normalizer, self.image_size, self.crop_ratio = (
+            load_checkpoint(checkpoint_path, device)
         )
         self.camera_key_mapping = camera_key_mapping
         self.state_key = state_key
@@ -39,7 +42,7 @@ class BaselineAgent(BaseAgent):
 
     def get_action(self, observation: dict) -> np.ndarray:
         images = {
-            policy_key: preprocess_image(observation[obs_key], self.image_size).to(self.device)
+            policy_key: preprocess_image(observation[obs_key], self.image_size, self.crop_ratio).to(self.device)
             for obs_key, policy_key in self.camera_key_mapping.items()
         }
         proprio = torch.from_numpy(np.asarray(observation[self.state_key], dtype=np.float32)).unsqueeze(0)

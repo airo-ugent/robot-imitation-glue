@@ -15,6 +15,12 @@ from torchvision.models import resnet18
 IMAGENET_MEAN = (0.485, 0.456, 0.406)
 IMAGENET_STD = (0.229, 0.224, 0.225)
 
+# proprio dims with a std below this (m, rad, ...) in the training data are treated as constant: only centered, not
+# scaled. Scaling them by their tiny std would turn sensor noise or a slightly different value at inference into
+# huge inputs. Not applied to actions: they are only unnormalized at inference (multiplied by the std), where a
+# small std is harmless, and real action dims can have stds in this range (e.g. delta positions in m).
+PROPRIO_CONSTANT_STD = 1e-3
+
 
 def to_chw_float_image(image: torch.Tensor) -> torch.Tensor:
     """converts a single HWC or CHW uint8/float image tensor to a CHW float tensor in [0,1]."""
@@ -36,14 +42,32 @@ def resize_image(image: torch.Tensor, image_size: int) -> torch.Tensor:
     return nn.functional.interpolate(image, size=(image_size, image_size), mode="bilinear", antialias=True)
 
 
+def crop_image(image: torch.Tensor, crop_ratio: float, random_crop: bool) -> torch.Tensor:
+    """crop a (..., H, W) image to `crop_ratio` of its height and width, before resizing. As in Diffusion Policy:
+    a random crop during training (augmentation) and a center crop at inference, so both see the same scale."""
+    if crop_ratio >= 1.0:
+        return image
+    height, width = image.shape[-2:]
+    crop_height, crop_width = round(height * crop_ratio), round(width * crop_ratio)
+    if random_crop:
+        top = int(torch.randint(0, height - crop_height + 1, ()))
+        left = int(torch.randint(0, width - crop_width + 1, ()))
+    else:
+        top, left = (height - crop_height) // 2, (width - crop_width) // 2
+    return image[..., top : top + crop_height, left : left + crop_width]
+
+
 class Normalizer(nn.Module):
     """(un)normalizes a vector with per-dimension mean/std. Registered as buffers so it is part of the state dict."""
 
-    def __init__(self, mean: torch.Tensor, std: torch.Tensor):
+    def __init__(self, mean: torch.Tensor, std: torch.Tensor, constant_std: float = 0.0):
+        """dims with a std below `constant_std` get a std of 1 (only centered), see PROPRIO_CONSTANT_STD."""
         super().__init__()
         self.register_buffer("mean", mean.float())
+        std = std.float()
+        std = torch.where(std < constant_std, torch.ones_like(std), std)
         # avoid dividing by zero for constant dimensions
-        self.register_buffer("std", torch.clamp(std.float(), min=1e-6))
+        self.register_buffer("std", torch.clamp(std, min=1e-6))
 
     def normalize(self, x: torch.Tensor) -> torch.Tensor:
         return (x - self.mean) / self.std
@@ -122,13 +146,19 @@ class BCPolicy(nn.Module):
 
 
 def save_checkpoint(
-    path, policy: nn.Module, proprio_normalizer: Normalizer, action_normalizer: Normalizer, image_size
+    path,
+    policy: nn.Module,
+    proprio_normalizer: Normalizer,
+    action_normalizer: Normalizer,
+    image_size,
+    crop_ratio: float = 1.0,
 ):
-    """save the weights, the model config and the normalization statistics in a single file."""
+    """save the weights, the model config, the normalization statistics and the image preprocessing in one file."""
     torch.save(
         {
             "config": policy.config,
             "image_size": image_size,
+            "crop_ratio": crop_ratio,
             "model_state_dict": policy.state_dict(),
             "proprio_normalizer_state_dict": proprio_normalizer.state_dict(),
             "action_normalizer_state_dict": action_normalizer.state_dict(),
@@ -138,7 +168,7 @@ def save_checkpoint(
 
 
 def load_checkpoint(path, device="cpu", policy_class=BCPolicy):
-    """returns (policy, proprio_normalizer, action_normalizer, image_size), all on the requested device.
+    """returns (policy, proprio_normalizer, action_normalizer, image_size, crop_ratio), on the requested device.
 
     `policy_class` is constructed from the config stored in the checkpoint, so other policies with the same
     checkpoint format (e.g. `dit_policy.DiTPolicy`) can reuse this loader."""
@@ -156,4 +186,6 @@ def load_checkpoint(path, device="cpu", policy_class=BCPolicy):
     action_normalizer = Normalizer(torch.zeros(action_dim), torch.ones(action_dim))
     action_normalizer.load_state_dict(checkpoint["action_normalizer_state_dict"])
 
-    return policy, proprio_normalizer.to(device), action_normalizer.to(device), checkpoint["image_size"]
+    # checkpoints from before the crop augmentation were trained on uncropped images
+    crop_ratio = checkpoint.get("crop_ratio", 1.0)
+    return policy, proprio_normalizer.to(device), action_normalizer.to(device), checkpoint["image_size"], crop_ratio

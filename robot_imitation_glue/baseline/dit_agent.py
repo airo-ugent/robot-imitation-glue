@@ -36,8 +36,8 @@ class DiTAgent(BaseAgent):
     ):
         super().__init__()
         self.device = device
-        self.policy, self.proprio_normalizer, self.action_normalizer, self.image_size = load_checkpoint(
-            checkpoint_path, device, policy_class=DiTPolicy
+        self.policy, self.proprio_normalizer, self.action_normalizer, self.image_size, self.crop_ratio = (
+            load_checkpoint(checkpoint_path, device, policy_class=DiTPolicy)
         )
         self.camera_key_mapping = camera_key_mapping
         self.state_key = state_key
@@ -59,7 +59,7 @@ class DiTAgent(BaseAgent):
 
     def _predict_chunk(self, observation: dict) -> np.ndarray:
         images = {
-            policy_key: preprocess_image(observation[obs_key], self.image_size).to(self.device)
+            policy_key: preprocess_image(observation[obs_key], self.image_size, self.crop_ratio).to(self.device)
             for obs_key, policy_key in self.camera_key_mapping.items()
         }
         proprio = torch.from_numpy(np.asarray(observation[self.state_key], dtype=np.float32)).unsqueeze(0)
