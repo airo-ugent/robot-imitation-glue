@@ -68,7 +68,7 @@ offline. Two `__main__` blocks in the repo do exactly this.
 python -m robot_imitation_glue.agents.lerobot_agent --checkpoint <.../pretrained_model> --dataset <training dataset>
 ```
 
-It loads the checkpoint with `make_lerobot_policy(pretrained_path, dataset_path)`, takes a frame straight
+It loads the checkpoint with `make_lerobot_policy(pretrained_path, device)`, takes a frame straight
 from the training dataset, and prints the predicted action next to `dataset[0]["action"]`. If those two do
 not roughly agree on a *training* frame, the problem is the checkpoint or the dataset stats, not your robot.
 The second half of that block then runs a `LerobotAgent` with a `observation_preprocessor` on randomly
@@ -76,9 +76,11 @@ generated observations, which is how you check that your preprocessor produces t
 scaling and batch dimension that the policy expects, and how long it takes (both the preprocessor and the
 inference time are logged in ms by `LerobotAgent.get_action`).
 
-Note that `make_lerobot_policy` needs the *training* dataset to be present locally, because the policy is
-built from `dataset.meta` (normalisation stats). A common failure mode is pointing it at a differently
-normalised dataset.
+`make_lerobot_policy` returns the policy together with its `policy_preprocessor` / `policy_postprocessor`:
+the policy itself does not (un)normalize, the processor pipelines saved next to the weights
+(`policy_preprocessor.json` + `.safetensors` with the dataset stats) do. The training dataset is therefore
+not needed for inference, but a `LerobotAgent` without those two processors would feed unnormalized inputs to
+the policy and return normalized actions.
 
 **OpenPI / remote policy servers** — [`robot_imitation_glue/agents/openpi_agent.py`](../robot_imitation_glue/agents/openpi_agent.py):
 
@@ -99,8 +101,10 @@ run. Drive the robot through an episode using the **recorded** actions (as in se
 
 ```python
 dataset = LeRobotDataset(repo_id="", root=train_dataset_path)
-agent = LerobotAgent(make_lerobot_policy(checkpoint_path, train_dataset_path), "cuda", preprocessor)
-start, stop = (dataset.episode_data_index[k][episode_idx].item() for k in ("from", "to"))
+policy, policy_preprocessor, policy_postprocessor = make_lerobot_policy(checkpoint_path, "cuda")
+agent = LerobotAgent(policy, "cuda", preprocessor, policy_preprocessor, policy_postprocessor)
+episode = dataset.meta.episodes[episode_idx]
+start, stop = episode["dataset_from_index"], episode["dataset_to_index"]
 
 agent.reset()                                    # clear the action chunk queue
 for i in range(start, stop):
@@ -199,11 +203,13 @@ use it.
 Useful when writing a `transform_fn`: `transform_dataset` already strips the auto-generated
 `index`/`timestamp`/`frame_index`/`episode_index`/`task_index` fields, unsqueezes 0D tensors to 1D and
 permutes images back to channel-last before calling your function — so your frames look like what
-`add_frame` expects, not like what `dataset[i]` returns.
+`add_frame` expects, not like what `dataset[i]` returns. Keep the `task` key in the returned frame: lerobot
+requires it in every frame.
 
 For plain inspection, `LeRobotDataset(repo_id="", root=<dir>)` plus `dataset.meta`,
-`dataset.features`, `dataset.num_episodes` and `dataset.episode_data_index` (a dict with `"from"`/`"to"`
-frame indices per episode) is usually all you need. LeRobot's own `visualize_dataset` scripts work on
+`dataset.features`, `dataset.num_episodes` and `dataset.meta.episodes[i]` (with the
+`"dataset_from_index"`/`"dataset_to_index"` frame indices and the `"length"` of episode `i`) is usually all
+you need. LeRobot's own `visualize_dataset` scripts work on
 these datasets too.
 
 ## 5. Common gotchas
@@ -254,11 +260,16 @@ read the warnings. `act()` normalises and clips `robot_pose_se3` in place, and b
 into the next step's target. After a refused pose both loops continue from the measured pose instead;
 `collect_data()` does not record the refused step, `eval()` still records what the policy predicted.
 
-**Recording into an existing directory continues that dataset.** `LeRobotDatasetRecorder` loads the dataset
-if `root_dataset_dir` exists and continues from `n_recorded_episodes` (`192543f` fixed the episode count
-being read from `episode_data_index` instead of `episode_data_index["from"]`). In `eval()` that counter also
+**Recording into an existing directory continues that dataset.** `LeRobotDatasetRecorder` resumes the dataset
+(`LeRobotDataset.resume`) if `root_dataset_dir` exists and continues from `n_recorded_episodes`. In `eval()` that counter also
 selects which episode of the `eval_dataset` is used as initial-scene reference, so a continued eval picks up
 the scenario list where it left off. If you want a fresh dataset, use a fresh directory.
+
+**Every saved episode is complete on disk.** lerobot keeps a dataset's data and episode-metadata parquet files
+open while recording and only writes their footers in `finalize()`. `LeRobotDatasetRecorder.save_episode()`
+therefore finalizes and resumes the dataset after every episode (one data file per episode), so a session that
+is killed hard (SIGKILL, closed terminal, driver crash) only loses the episode in progress. If a dataset is
+inconsistent anyway (killed while saving), the recorder refuses to append to it instead of hiding the damage.
 
 **Deleting an episode.** Pressing `d` in `collect_data()` cancels the episode that is being recorded. Saved
 episodes cannot be deleted during collection: finish the session and use `remove_lerobot_dataset_episode.py`.
@@ -278,8 +289,8 @@ prompt still comes from wherever the agent takes it (`OpenPIAgent(default_prompt
 ## 6. Environment and import gotchas
 
 **The wrong `airo-*` / `lerobot` version is being imported.** The environment is managed with uv (see the
-README). The vendored submodules — `airo-ipc/`, the `airo-mono/` packages, `lerobot/` (the `tlpss/lerobot`
-fork, pinned in `.gitmodules`) and `airo-teleop/` — are installed as *editable* path dependencies
+README). The vendored submodules — `airo-ipc/`, the `airo-mono/` packages, `lerobot/` (the `airo-ugent/lerobot`
+fork of huggingface/lerobot, pinned in `.gitmodules`) and `airo-teleop/` — are installed as *editable* path dependencies
 (`[tool.uv.sources]` in `pyproject.toml`) behind optional extras, so edits under a submodule take effect
 immediately. Things that still go wrong:
 
@@ -298,14 +309,10 @@ print(airo_robots.__file__, airo_camera_toolkit.__file__, lerobot.__file__)
 ```
 
 The paths should point into this repository's submodules. This matters most for `lerobot`: the dataset
-format and API differ noticeably between versions. The code here targets the pinned fork
-(`lerobot.common.datasets...`, `dataset.add_frame(frame, task=...)`); a newer upstream lerobot
-(`lerobot.datasets...`) fails on import or on `add_frame`.
-
-The pinned lerobot also needs `numpy<2.4` and `datasets<4` (both pinned in `pyproject.toml`): with newer
-versions saving an episode fails (`TypeError: only 0-dimensional arrays can be converted to Python scalars`)
-and loading a dataset fails (`stack(): ... must be tuple of Tensors, not Column`). An environment that does
-not come from `uv.lock` (e.g. a conda env) can still have the newer ones.
+format and API differ noticeably between versions. The code here targets the pinned lerobot v0.6.1
+(`lerobot.datasets...`, `dataset.add_frame({..., "task": ...})`, dataset format v3.0); an older lerobot
+(`lerobot.common.datasets...`, format v2.1) fails on import, and cannot read v3.0 datasets. Datasets
+recorded with the old format can be converted with lerobot's `convert_dataset_v21_to_v30.py` script.
 
 **Import errors for modules that clearly exist.** `ipc_camera.py` and `grippers/schunk_process.py` live
 under `robot_imitation_glue/hardware/` (moved in `5cb582e`; both stations import that location now). If an

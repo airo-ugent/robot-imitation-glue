@@ -1,6 +1,6 @@
 import time
 
-from lerobot.common.datasets.lerobot_dataset import LeRobotDataset
+from lerobot.datasets.lerobot_dataset import LeRobotDataset
 from loguru import logger
 
 from robot_imitation_glue.base import BaseEnv
@@ -16,9 +16,9 @@ def replay_episode(
     episode_idx: int = 0,
     fps=10,
 ):
-    episode_indices = dataset.episode_data_index
-    episode_start_idx = episode_indices["from"][episode_idx].item()
-    episode_to_idx = episode_indices["to"][episode_idx].item()
+    # absolute frame indices, which are also the row indices as long as the dataset is not filtered on episodes
+    episode = dataset.meta.episodes[episode_idx]
+    episode_start_idx, episode_to_idx = episode["dataset_from_index"], episode["dataset_to_index"]
 
     dataset_initial_image = dataset[episode_start_idx][dataset_image_key]
     dataset_initial_action = dataset[episode_start_idx]["action"].cpu().numpy()

@@ -1,6 +1,6 @@
 import argparse
 
-from lerobot.common.datasets.lerobot_dataset import LeRobotDataset
+from lerobot.datasets.lerobot_dataset import LeRobotDataset
 
 from robot_imitation_glue.lerobot_dataset.replay_episode import replay_episode
 from robot_imitation_glue.ur5station.ur5_robot_env import UR5eStation, abs_joint_policy_action_to_se3

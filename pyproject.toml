@@ -12,7 +12,7 @@ requires-python = ">=3.12,<3.13"
 dependencies = [
     "click",
     "loguru",
-    "numpy<2.4", # the pinned lerobot saves 1-element arrays (next.reward, ...) as scalars, an error since numpy 2.4
+    "numpy",
     "opencv-python", # GUI build: collect_data.py / eval_agent.py call cv2.imshow
     "pynput",
     "rerun-sdk",
@@ -33,11 +33,8 @@ airo = [
     "airo-camera-toolkit",
     "airo-robots[ur]", # the UR driver (ur-rtde) is an extra of airo-robots
 ]
-# vendored lerobot fork: dataset recording/replay and the lerobot agents
-lerobot = [
-    "lerobot",
-    "datasets<4", # the pinned lerobot torch.stack()s dataset columns, datasets 4 returns Column objects
-]
+# vendored lerobot (huggingface/lerobot, pinned release): dataset recording/replay, training and the lerobot agents
+lerobot = ["lerobot[dataset,training,diffusion]"]
 # vendored airo-teleop packages: teleop devices (Gello, SpaceMouse, phone) and their agents
 teleop = ["airo-teleop-devices", "airo-teleop-agents"]
 # learned policies that run in-process (baseline policy, eval_lerobot.py)

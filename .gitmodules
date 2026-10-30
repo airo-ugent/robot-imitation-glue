@@ -6,7 +6,8 @@
 	url = https://github.com/airo-ugent/airo-ipc
 [submodule "lerobot"]
 	path = lerobot
-	url = https://github.com/tlpss/lerobot.git
+	url = https://github.com/airo-ugent/lerobot.git
+	branch = airo/main
 [submodule "airo-teleop"]
 	path = airo-teleop
 	url = https://github.com/airo-ugent/airo-teleop.git

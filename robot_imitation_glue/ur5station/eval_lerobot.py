@@ -8,7 +8,7 @@ The policy's state and action space has to match the dataset it was trained on:
 import argparse
 
 import numpy as np
-from lerobot.common.datasets.lerobot_dataset import LeRobotDataset
+from lerobot.datasets.lerobot_dataset import LeRobotDataset
 
 from robot_imitation_glue.agents.airo_teleop_agent import make_gello_agent
 from robot_imitation_glue.agents.lerobot_agent import LerobotAgent, make_lerobot_policy
@@ -29,7 +29,6 @@ from robot_imitation_glue.ur5station.ur5_robot_env import (
 
 # defaults of the command line arguments: edit them here or override them on the command line.
 CHECKPOINT_PATH = "outputs/train/pick-cube_diffusion/checkpoints/070000/pretrained_model"
-TRAIN_DATASET_PATH = "datasets/pick-cube-v2-remapped"
 STATE = "eef"
 EVAL_SCENARIOS_DATASET_PATH = "datasets/pick-cube-eval-scenarios"
 EVAL_DATASET_NAME = "pick-cube-eval-DP"
@@ -57,7 +56,6 @@ STATE_SPACES = {
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--checkpoint", default=CHECKPOINT_PATH, help="pretrained_model dir of the checkpoint")
-    parser.add_argument("--train-dataset", default=TRAIN_DATASET_PATH, help="dataset the policy was trained on")
     parser.add_argument("--state", default=STATE, choices=STATE_SPACES, help="state and action space of the policy")
     parser.add_argument("--eval-scenarios", default=EVAL_SCENARIOS_DATASET_PATH, help="dataset with initial scenes")
     parser.add_argument("--eval-dataset-name", default=EVAL_DATASET_NAME, help="name of the recorded eval dataset")
@@ -65,8 +63,8 @@ if __name__ == "__main__":
 
     preprocessor, policy_to_pose_converter, action_dim = STATE_SPACES[args.state]
 
-    policy = make_lerobot_policy(args.checkpoint, args.train_dataset)
-    lerobot_agent = LerobotAgent(policy, "cuda", preprocessor)
+    policy, policy_preprocessor, policy_postprocessor = make_lerobot_policy(args.checkpoint, "cuda")
+    lerobot_agent = LerobotAgent(policy, "cuda", preprocessor, policy_preprocessor, policy_postprocessor)
 
     env = UR5eStation()
     env.reset()

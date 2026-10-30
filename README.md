@@ -81,7 +81,7 @@ optional extra, so you can install only what you need instead of `--all-extras`:
 | extra | contents |
 | --- | --- |
 | `airo` | vendored `airo-ipc` + `airo-mono` packages (typing, dataset-tools, spatial-algebra, camera-toolkit, robots with the UR driver) |
-| `lerobot` | vendored `lerobot` fork: dataset recording/replay and the lerobot agents |
+| `lerobot` | vendored `lerobot` (airo-ugent fork of huggingface/lerobot, v0.6.1): dataset recording/replay, `lerobot-train` and the lerobot agents |
 | `teleop` | vendored `airo-teleop` packages: teleop devices (Gello, SpaceMouse, phone) and their agents |
 | `baseline` | `torch` / `torchvision`, for policies that run in-process |
 | `hardware` | vendor SDKs of the UR3/UR5 stations (RealSense, Schunk, Dynamixel, SpaceMouse, UR IK) |

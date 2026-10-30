@@ -1,7 +1,9 @@
 import numpy as np
 import pytest
 
-pytest.importorskip("lerobot.common.datasets.lerobot_dataset")
+pytest.importorskip("lerobot.datasets.lerobot_dataset")
+
+from lerobot.datasets.lerobot_dataset import LeRobotDataset
 
 from robot_imitation_glue.dataset_recorder import LeRobotDatasetRecorder
 
@@ -35,15 +37,25 @@ def _record_steps(recorder, n, value=0.0):
         recorder.record_step(obs, EXAMPLE_ACTION)
 
 
-def _saved_column(recorder, key):
-    return np.stack([np.asarray(x) for x in recorder.lerobot_dataset.hf_dataset[key]])
+def _finish_and_reload(recorder):
+    # lerobot only writes the parquet footers on finalize(), the dataset is not readable from disk before that
+    recorder.finish_recording()
+    return LeRobotDataset(repo_id="test_dataset", root=recorder.root_dataset_dir)
+
+
+def _saved_column(dataset, key):
+    return np.stack([np.asarray(x) for x in dataset.hf_dataset[key]])
+
+
+def _episode_buffer(recorder):
+    return recorder.lerobot_dataset.writer.episode_buffer
 
 
 def test_set_episode_success_labels_all_recorded_frames(recorder):
     _record_steps(recorder, 3)
     recorder.set_episode_success(True)
 
-    episode_buffer = recorder.lerobot_dataset.episode_buffer
+    episode_buffer = _episode_buffer(recorder)
     assert episode_buffer["size"] == 3
     assert all(bool(value) for value in episode_buffer["next.success"])
 
@@ -61,15 +73,16 @@ def test_episode_success_label_is_persisted_per_episode(recorder):
     recorder.set_episode_success(False)
     recorder.save_episode()
 
-    success = _saved_column(recorder, "next.success").reshape(-1)
-    episode_index = _saved_column(recorder, "episode_index").reshape(-1)
+    dataset = _finish_and_reload(recorder)
+    success = _saved_column(dataset, "next.success").reshape(-1)
+    episode_index = _saved_column(dataset, "episode_index").reshape(-1)
     np.testing.assert_array_equal(episode_index, [0, 0, 0, 1, 1])
     np.testing.assert_array_equal(success, [True, True, True, False, False])
 
 
 def test_record_step_defaults_to_failure(recorder):
     _record_steps(recorder, 2)
-    assert not any(bool(value) for value in recorder.lerobot_dataset.episode_buffer["next.success"])
+    assert not any(bool(value) for value in _episode_buffer(recorder)["next.success"])
 
 
 def test_delete_episode_discards_current_episode(recorder):
@@ -79,7 +92,7 @@ def test_delete_episode_discards_current_episode(recorder):
     _record_steps(recorder, 2)
     recorder.delete_episode()
 
-    assert recorder.lerobot_dataset.episode_buffer["size"] == 0
+    assert _episode_buffer(recorder)["size"] == 0
     assert recorder.n_recorded_episodes == 1
 
 
@@ -95,27 +108,70 @@ def test_episode_after_delete_is_saved_with_next_index(recorder):
     recorder.set_episode_success(True)
     recorder.save_episode()
 
-    dataset = recorder.lerobot_dataset
     assert recorder.n_recorded_episodes == 2
+    dataset = _finish_and_reload(recorder)
     assert dataset.meta.total_episodes == 2
     assert dataset.meta.total_frames == 5
-    np.testing.assert_array_equal(_saved_column(recorder, "episode_index").reshape(-1), [0, 0, 1, 1, 1])
-    np.testing.assert_allclose(_saved_column(recorder, "state")[2:], np.tile(EXAMPLE_OBS["state"] + 3.0, (3, 1)))
+    np.testing.assert_array_equal(_saved_column(dataset, "episode_index").reshape(-1), [0, 0, 1, 1, 1])
+    np.testing.assert_allclose(_saved_column(dataset, "state")[2:], np.tile(EXAMPLE_OBS["state"] + 3.0, (3, 1)))
     # images go through the async writer; check that episode 1 contains the images of the kept episode
     for item in (dataset[i] for i in range(2, 5)):
         np.testing.assert_allclose(item["scene_image"].numpy(), 3.0 / 255.0, atol=1e-6)
 
 
-def test_success_and_delete_are_noops_without_episode_buffer(recorder):
-    # a dataset loaded from disk (the recorder appends to an existing dir) has no episode buffer until the
-    # first frame is added. Simulated here: reloading needs datasets<4 with the pinned lerobot.
-    recorder.lerobot_dataset.episode_buffer = None
+def test_recording_into_an_existing_dataset_appends(tmp_path):
+    # a recorder on an existing dir resumes that dataset: success/delete are no-ops until the first frame
+    first = _make_recorder(tmp_path / "dataset")
+    _record_steps(first, 2)
+    first.save_episode()
+    first.finish_recording()
+
+    recorder = _make_recorder(tmp_path / "dataset")
+    assert recorder.n_recorded_episodes == 1
     recorder.set_episode_success(True)
     recorder.delete_episode()
-    assert recorder.lerobot_dataset.episode_buffer is None
 
-    _record_steps(recorder, 2)
+    _record_steps(recorder, 3)
     recorder.set_episode_success(True)
     recorder.save_episode()
-    assert recorder.lerobot_dataset.meta.total_frames == 2
-    np.testing.assert_array_equal(_saved_column(recorder, "next.success").reshape(-1), [True, True])
+    assert recorder.n_recorded_episodes == 2
+
+    dataset = _finish_and_reload(recorder)
+    assert dataset.meta.total_episodes == 2
+    np.testing.assert_array_equal(_saved_column(dataset, "episode_index").reshape(-1), [0, 0, 1, 1, 1])
+    np.testing.assert_array_equal(_saved_column(dataset, "next.success").reshape(-1), [False, False, True, True, True])
+
+
+_KILLED_SESSION = """
+import os, sys
+import numpy as np
+from robot_imitation_glue.dataset_recorder import LeRobotDatasetRecorder
+
+# 64x64: the AV1 video encoder crashes (SIGFPE) on tiny frames
+obs = {"scene_image": np.zeros((64, 64, 3), dtype=np.uint8), "state": np.zeros(3, dtype=np.float32)}
+recorder = LeRobotDatasetRecorder(obs, np.zeros(3, dtype=np.float32), sys.argv[1], "test_dataset", 10, sys.argv[2] == "1")
+for _ in range(2):
+    for _ in range(3):
+        recorder.record_step(obs, np.zeros(3, dtype=np.float32))
+    recorder.save_episode()
+recorder.record_step(obs, np.zeros(3, dtype=np.float32))  # an unsaved episode in progress
+os._exit(1)  # killed: no finish_recording(), no atexit
+"""
+
+
+@pytest.mark.parametrize("use_videos", [False, True])
+def test_saved_episodes_survive_a_killed_session(tmp_path, use_videos):
+    import subprocess
+    import sys
+
+    root = tmp_path / "dataset"
+    for _ in range(2):  # the second killed session appends to the dataset the first one left behind
+        session = subprocess.run([sys.executable, "-c", _KILLED_SESSION, str(root), str(int(use_videos))])
+        assert session.returncode == 1  # the os._exit, not an earlier crash
+        dataset = LeRobotDataset(repo_id="test_dataset", root=root)
+        assert dataset.meta.total_episodes == len(dataset.meta.episodes)
+    assert dataset.meta.total_episodes == 4
+    assert len(dataset) == 12
+    np.testing.assert_array_equal(_saved_column(dataset, "episode_index").reshape(-1), np.repeat([0, 1, 2, 3], 3))
+    if use_videos:
+        assert dataset[11]["scene_image"].shape == (3, 64, 64)

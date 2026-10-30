@@ -1,13 +1,15 @@
 import numpy as np
 import pytest
 
-pytest.importorskip("lerobot.common.datasets.lerobot_dataset")
+pytest.importorskip("lerobot.datasets.lerobot_dataset")
+
+from lerobot.datasets.lerobot_dataset import LeRobotDataset
 
 from robot_imitation_glue.dataset_recorder import LeRobotDatasetRecorder
 
 
 def test_recorded_episode_is_saved(tmp_path):
-    """record_step must match the pinned lerobot's add_frame signature (the task is an argument there)."""
+    """record_step must match lerobot's add_frame (the task is a key of the frame) and finalize the dataset."""
     obs = {"scene_image": np.zeros((16, 16, 3), dtype=np.uint8), "state": np.array([0.1, 0.2, 0.3], dtype=np.float32)}
     action = np.array([0.1, 0.2, 0.3], dtype=np.float32)
     recorder = LeRobotDatasetRecorder(
@@ -24,3 +26,5 @@ def test_recorded_episode_is_saved(tmp_path):
     recorder.save_episode()
     assert recorder.n_recorded_episodes == 1
     assert recorder.lerobot_dataset.meta.total_frames == 3
+    recorder.finish_recording()
+    assert len(LeRobotDataset(repo_id="test_dataset", root=tmp_path / "dataset")) == 3

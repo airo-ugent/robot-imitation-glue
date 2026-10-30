@@ -2,26 +2,32 @@ import time
 
 import numpy as np
 import torch
-from lerobot.common.datasets.lerobot_dataset import LeRobotDataset
-from lerobot.common.policies.diffusion.configuration_diffusion import PreTrainedConfig
-from lerobot.common.policies.factory import make_policy
+from lerobot.configs.policies import PreTrainedConfig
+from lerobot.datasets.lerobot_dataset import LeRobotDataset
+from lerobot.policies.factory import get_policy_class, make_pre_post_processors
 from loguru import logger
 
 from robot_imitation_glue.base import BaseAgent
 
 
-def make_lerobot_policy(pretrained_path, dataset_path):
-    """ """
-    # TODO: try to omit the need to load the dataset, bc it is not always on the same machine and is a source of errors..
-    # not sure why Lerobot has not simply stored the metadata in an additional file.
-    policy_config = PreTrainedConfig.from_pretrained(pretrained_path)
-    dataset = LeRobotDataset(repo_id="dataset", root=dataset_path)
+def make_lerobot_policy(pretrained_path, device="cuda"):
+    """load a policy checkpoint (a `pretrained_model` dir saved by lerobot-train) for inference.
 
-    # important! this actually loads the weight instead of random initialization.
-    policy_config.pretrained_path = pretrained_path
-    policy = make_policy(policy_config, ds_meta=dataset.meta)
+    returns (policy, policy_preprocessor, policy_postprocessor). The policy does not normalize its inputs and
+    outputs itself: the preprocessor (normalization, batching, device placement) and the postprocessor
+    (unnormalization) are stored next to the weights, together with the dataset statistics, so the training
+    dataset is not needed.
+    """
+    policy_config = PreTrainedConfig.from_pretrained(pretrained_path)
+    policy = get_policy_class(policy_config.type).from_pretrained(pretrained_path)
+    policy.to(device)
     policy.eval()
-    return policy
+    policy_preprocessor, policy_postprocessor = make_pre_post_processors(
+        policy.config,
+        pretrained_path=pretrained_path,
+        preprocessor_overrides={"device_processor": {"device": str(device)}},
+    )
+    return policy, policy_preprocessor, policy_postprocessor
 
 
 class LerobotAgent(BaseAgent):
@@ -30,20 +36,23 @@ class LerobotAgent(BaseAgent):
 
     """
 
-    def __init__(self, policy, device, observation_preprocessor):
+    def __init__(self, policy, device, observation_preprocessor, policy_preprocessor, policy_postprocessor):
         """
-        processor must take the env obs dict and do
+        observation_preprocessor must take the env obs dict and do
         1) numpy to tensor
         2) batchifying the observation
         3) renaming the keys to the policy expected keys
         4) (optional) do any other preprocessing, such as image resizing/cropping...
 
-
+        policy_preprocessor / policy_postprocessor are the processor pipelines saved with the checkpoint (see
+        `make_lerobot_policy`), they (un)normalize around `policy.select_action`.
         """
         super().__init__()
         self.policy = policy
         self.device = device
         self.observation_preprocessor = observation_preprocessor
+        self.policy_preprocessor = policy_preprocessor
+        self.policy_postprocessor = policy_postprocessor
 
     def get_action(self, observation):
         start_time = time.time()
@@ -53,13 +62,16 @@ class LerobotAgent(BaseAgent):
         observation = {k: v.to(self.device) for k, v in observation.items()}
         with torch.no_grad():
             time_start = time.time()
-            action = self.policy.select_action(observation)
+            action = self.policy.select_action(self.policy_preprocessor(observation))
+            action = self.policy_postprocessor(action)
             time_end = time.time()
             logger.info(f"Lerobot agent inference took {((time_end - time_start)*1000):.2f} ms")
         return action.squeeze(0).cpu().numpy()
 
     def reset(self):
         self.policy.reset()
+        self.policy_preprocessor.reset()
+        self.policy_postprocessor.reset()
 
 
 if __name__ == "__main__":
@@ -71,11 +83,11 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description="Smoke-test a LeRobot checkpoint on random observations.")
     parser.add_argument("--checkpoint", default=CHECKPOINT_PATH, help="pretrained_model dir of the checkpoint")
-    parser.add_argument("--dataset", default=DATASET_PATH, help="dataset the policy was trained on")
+    parser.add_argument("--dataset", default=DATASET_PATH, help="dataset to take an example observation from")
     args = parser.parse_args()
     path, dataset_path = args.checkpoint, args.dataset
 
-    policy = make_lerobot_policy(path, dataset_path).cpu()
+    policy, policy_preprocessor, policy_postprocessor = make_lerobot_policy(path, "cpu")
 
     dataset = LeRobotDataset(repo_id="dataset", root=dataset_path)
 
@@ -89,7 +101,7 @@ if __name__ == "__main__":
             batch[k] = v.unsqueeze(0)
 
     time_before = time.time()
-    action = policy.select_action(batch).squeeze(0)
+    action = policy_postprocessor(policy.select_action(policy_preprocessor(batch))).squeeze(0)
     time_after = time.time()
     print(f"inferece took {time_after-time_before} s")
     print(f"policy action: {action}")
@@ -125,9 +137,8 @@ if __name__ == "__main__":
         observation["observation.state"] = observation["observation.state"].unsqueeze(0)
         return observation
 
-    policy = make_lerobot_policy(path, dataset_path)
-    policy = policy.to("cuda")
-    agent = LerobotAgent(policy, "cuda", observation_preprocessor)
+    policy, policy_preprocessor, policy_postprocessor = make_lerobot_policy(path, "cuda")
+    agent = LerobotAgent(policy, "cuda", observation_preprocessor, policy_preprocessor, policy_postprocessor)
     for _ in range(20):
         test_obs = {
             "img1": np.random.randint(0, 255, (256, 256, 3)),

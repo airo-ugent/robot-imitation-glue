@@ -14,18 +14,19 @@ pi0, and the in-repo BC/DiT baselines), visualised with Rerun. Teleop devices an
 Python 3.12 only (`requires-python = ">=3.12,<3.13"`), managed with uv.
 
 ```bash
-git submodule update --init --recursive   # airo-mono, airo-ipc, lerobot (tlpss fork, pinned), airo-teleop
+git submodule update --init --recursive   # airo-mono, airo-ipc, lerobot (airo-ugent fork, pinned), airo-teleop
 uv sync                                   # core deps only; needs no submodule checkout (what CI uses)
 uv sync --extra lerobot --extra baseline  # or --all-extras; extras are listed below
 ```
 
-Extras (`pyproject.toml`): `airo` (airo-ipc + airo-mono packages), `lerobot` (vendored fork),
+Extras (`pyproject.toml`): `airo` (airo-ipc + airo-mono packages), `lerobot` (vendored, with its dataset,
+training and diffusion extras),
 `teleop` (airo-teleop), `baseline` (torch/torchvision), `hardware` (RealSense, Schunk, Dynamixel,
 SpaceMouse, `ur-analytic-ik`), `remote-policy` (OpenVLA HTTP client). All submodule packages are editable
 path sources under `[tool.uv.sources]`. `openpi-client` is deliberately not installable here (it pins
 numpy<2); pi0 eval needs a separate env. airo-robots' hardware drivers are extras of airo-robots itself
-(`airo-robots[ur]` here; add e.g. `[realman]` for a RealMan station). `numpy<2.4` and `datasets<4` are pinned
-for the lerobot fork (newer versions break saving/loading episodes); do not lift them without bumping lerobot.
+(`airo-robots[ur]` here; add e.g. `[realman]` for a RealMan station). lerobot's own pins (e.g. `numpy<2.3`,
+`datasets>=4.8`, `torch<2.12`) constrain the whole environment.
 
 ## Tests and CI
 
@@ -73,7 +74,7 @@ robot_imitation_glue/
 
 Data flow: station `data_collection.py` -> `collect_data()` -> `LeRobotDatasetRecorder` writes
 `datasets/<name>` -> optional `transform_dataset` step (e.g. `ur5station/prepare_datasets.py` renames keys
-to `observation.*` and converts rot6d EEF actions to joint actions via IK) -> train with the lerobot fork
+to `observation.*` and converts rot6d EEF actions to joint actions via IK) -> train with `lerobot-train`
 (configs in `ur5station/lerobot_train/`) or `python -m robot_imitation_glue.baseline.train[_dit]` ->
 station `eval_*.py` wraps the policy in an agent and calls `eval()`, which records rollouts as a new dataset.
 
@@ -120,10 +121,15 @@ continue from the measured pose, and `collect_data` does not record that step. C
   draw on an observation without `.copy()`.
 - **Reset agents between episodes.** `eval()` calls `policy_agent.reset()` before each rollout. Chunking
   agents (`LerobotAgent`, `DiTAgent`, `OpenPIAgent`) keep action queues; any custom loop must reset too.
-- **Pinned lerobot API.** Imports are `lerobot.common.datasets.lerobot_dataset` (the pinned fork), and the
-  task is an argument: `dataset.add_frame(frame, task=...)`, not a frame key. Do not "upgrade" code to the
-  newer upstream lerobot layout (`lerobot.datasets`) without bumping the submodule and the lock together.
-  `make_lerobot_policy` needs the training dataset locally for normalisation stats.
+- **Pinned lerobot API (v0.6.1, dataset format v3.0).** The submodule is `airo-ugent/lerobot` (a fork of
+  huggingface/lerobot; lab changes go to its `airo/main` branch), pinned at the v0.6.1 release. Imports are
+  `lerobot.datasets.lerobot_dataset`, the task is a frame key (`add_frame({..., "task": ""})`), a dataset being
+  written must be `finalize()`d or it is unreadable (the recorder does so after every episode, keep that), appending to an
+  existing dataset goes through `LeRobotDataset.resume`, and episode boundaries are in
+  `dataset.meta.episodes[i]["dataset_from_index" / "dataset_to_index"]`. Policies do not normalize themselves:
+  `make_lerobot_policy` returns the policy plus the pre/post-processors saved with the checkpoint, and
+  `LerobotAgent` needs both. Bump the submodule and `uv.lock` together. The `ur5station/lerobot_train/*.json`
+  configs are full `TrainPipelineConfig` dumps for this version (`lerobot-train --config_path=...`).
 - **Recording into an existing dir appends** to that dataset. Use a fresh directory for a fresh dataset.
 - **Station scripts take CLI arguments whose defaults are constants at the top of the script**
   (checkpoints, dataset roots, ports), so they can be run as-is after editing those constants. Keep that

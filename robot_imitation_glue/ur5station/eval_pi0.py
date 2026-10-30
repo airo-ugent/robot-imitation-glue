@@ -3,7 +3,7 @@
 import argparse
 
 import numpy as np
-from lerobot.common.datasets.lerobot_dataset import LeRobotDataset
+from lerobot.datasets.lerobot_dataset import LeRobotDataset
 
 from robot_imitation_glue.agents.airo_teleop_agent import make_gello_agent
 from robot_imitation_glue.agents.openpi_agent import OpenPIAgent
