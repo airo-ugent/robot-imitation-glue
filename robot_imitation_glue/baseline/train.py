@@ -22,8 +22,10 @@ from torch.utils.data import DataLoader, Dataset
 from tqdm import tqdm
 
 from robot_imitation_glue.baseline.policy import (
+    PROPRIO_CONSTANT_STD,
     BCPolicy,
     Normalizer,
+    random_shift,
     resize_image,
     save_checkpoint,
     to_chw_float_image,
@@ -80,7 +82,8 @@ def compute_normalization_stats(dataloader: DataLoader) -> tuple[Normalizer, Nor
         actions.append(action)
     proprios = torch.cat(proprios)
     actions = torch.cat(actions)
-    return Normalizer(proprios.mean(dim=0), proprios.std(dim=0)), Normalizer(actions.mean(dim=0), actions.std(dim=0))
+    proprio_normalizer = Normalizer(proprios.mean(dim=0), proprios.std(dim=0), constant_std=PROPRIO_CONSTANT_STD)
+    return proprio_normalizer, Normalizer(actions.mean(dim=0), actions.std(dim=0))
 
 
 def train(args) -> None:
@@ -123,7 +126,10 @@ def train(args) -> None:
 
         pbar = tqdm(dataloader, desc=f"Epoch {epoch}/{args.epochs}", leave=False)
         for images, proprio, action in pbar:
-            images = {key: value.to(device, non_blocking=True) for key, value in images.items()}
+            images = {
+                key: random_shift(value.to(device, non_blocking=True), args.random_shift)
+                for key, value in images.items()
+            }
             proprio = proprio_normalizer.normalize(proprio.to(device, non_blocking=True))
             action = action_normalizer.normalize(action.to(device, non_blocking=True))
 
@@ -157,6 +163,12 @@ def parse_args():
     parser.add_argument("--output-dir", type=str, default="outputs/baseline-bc", help="Directory to save checkpoints")
 
     parser.add_argument("--image-size", type=int, default=128, help="Images are resized to this square resolution")
+    parser.add_argument(
+        "--random-shift",
+        type=int,
+        default=4,
+        help="Training augmentation: shift the resized images by up to this many pixels, 0 disables",
+    )
     parser.add_argument("--epochs", type=int, default=100)
     parser.add_argument("--batch-size", type=int, default=32)
     parser.add_argument("--num-workers", type=int, default=8)

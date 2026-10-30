@@ -23,7 +23,7 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 from robot_imitation_glue.baseline.dit_policy import DiTPolicy
-from robot_imitation_glue.baseline.policy import Normalizer, save_checkpoint
+from robot_imitation_glue.baseline.policy import PROPRIO_CONSTANT_STD, Normalizer, random_shift, save_checkpoint
 from robot_imitation_glue.baseline.train import BCDataset, LeRobotDataset, set_seed
 
 
@@ -77,7 +77,8 @@ def compute_normalization_stats(dataloader: DataLoader) -> tuple[Normalizer, Nor
         actions.append(action[mask.bool()])
     proprios = torch.cat(proprios)
     actions = torch.cat(actions)
-    return Normalizer(proprios.mean(dim=0), proprios.std(dim=0)), Normalizer(actions.mean(dim=0), actions.std(dim=0))
+    proprio_normalizer = Normalizer(proprios.mean(dim=0), proprios.std(dim=0), constant_std=PROPRIO_CONSTANT_STD)
+    return proprio_normalizer, Normalizer(actions.mean(dim=0), actions.std(dim=0))
 
 
 def make_lr_scheduler(optimizer, warmup_steps: int, total_steps: int, min_lr_ratio: float = 0.01):
@@ -137,7 +138,10 @@ def train(args) -> None:
 
         pbar = tqdm(dataloader, desc=f"Epoch {epoch}/{args.epochs}", leave=False)
         for images, proprio, action, mask in pbar:
-            images = {key: value.to(device, non_blocking=True) for key, value in images.items()}
+            images = {
+                key: random_shift(value.to(device, non_blocking=True), args.random_shift)
+                for key, value in images.items()
+            }
             proprio = proprio_normalizer.normalize(proprio.to(device, non_blocking=True))
             action = action_normalizer.normalize(action.to(device, non_blocking=True))
             mask = mask.to(device, non_blocking=True)
@@ -176,6 +180,12 @@ def parse_args():
     parser.add_argument("--output-dir", type=str, default="outputs/baseline-dit", help="Directory to save checkpoints")
 
     parser.add_argument("--image-size", type=int, default=128, help="Images are resized to this square resolution")
+    parser.add_argument(
+        "--random-shift",
+        type=int,
+        default=4,
+        help="Training augmentation: shift the resized images by up to this many pixels, 0 disables",
+    )
     parser.add_argument("--prediction-horizon", type=int, default=16, help="Number of future actions to predict")
     parser.add_argument("--hidden-dim", type=int, default=256)
     parser.add_argument("--n-layers", type=int, default=4)

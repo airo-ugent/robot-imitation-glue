@@ -15,6 +15,12 @@ from torchvision.models import resnet18
 IMAGENET_MEAN = (0.485, 0.456, 0.406)
 IMAGENET_STD = (0.229, 0.224, 0.225)
 
+# proprio dims with a std below this (m, rad, ...) in the training data are treated as constant: only centered, not
+# scaled. Scaling them by their tiny std would turn sensor noise or a slightly different value at inference into
+# huge inputs. Not applied to actions: they are only unnormalized at inference (multiplied by the std), where a
+# small std is harmless, and real action dims can have stds in this range (e.g. delta positions in m).
+PROPRIO_CONSTANT_STD = 1e-3
+
 
 def to_chw_float_image(image: torch.Tensor) -> torch.Tensor:
     """converts a single HWC or CHW uint8/float image tensor to a CHW float tensor in [0,1]."""
@@ -36,14 +42,28 @@ def resize_image(image: torch.Tensor, image_size: int) -> torch.Tensor:
     return nn.functional.interpolate(image, size=(image_size, image_size), mode="bilinear", antialias=True)
 
 
+def random_shift(images: torch.Tensor, pad: int) -> torch.Tensor:
+    """training-only augmentation: shift each (3,H,W) image of a (B,3,H,W) batch by up to `pad` pixels (replicate
+    padding + random crop, as in DrQ). The image size is unchanged, so inference needs no matching step."""
+    if pad == 0:
+        return images
+    _, _, height, width = images.shape
+    padded = nn.functional.pad(images, (pad, pad, pad, pad), mode="replicate")
+    offsets = torch.randint(0, 2 * pad + 1, (images.shape[0], 2)).tolist()
+    return torch.stack([padded[i, :, y : y + height, x : x + width] for i, (y, x) in enumerate(offsets)])
+
+
 class Normalizer(nn.Module):
     """(un)normalizes a vector with per-dimension mean/std. Registered as buffers so it is part of the state dict."""
 
-    def __init__(self, mean: torch.Tensor, std: torch.Tensor):
+    def __init__(self, mean: torch.Tensor, std: torch.Tensor, constant_std: float = 0.0):
+        """dims with a std below `constant_std` get a std of 1 (only centered), see PROPRIO_CONSTANT_STD."""
         super().__init__()
         self.register_buffer("mean", mean.float())
+        std = std.float()
+        std = torch.where(std < constant_std, torch.ones_like(std), std)
         # avoid dividing by zero for constant dimensions
-        self.register_buffer("std", torch.clamp(std.float(), min=1e-6))
+        self.register_buffer("std", torch.clamp(std, min=1e-6))
 
     def normalize(self, x: torch.Tensor) -> torch.Tensor:
         return (x - self.mean) / self.std
