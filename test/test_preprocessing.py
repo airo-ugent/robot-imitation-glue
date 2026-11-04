@@ -186,3 +186,10 @@ def test_relative_policy_action_accepts_float_and_array_gripper_widths():
         action = abs_se3_to_relative_policy_action_converter(np.eye(4), current, target, new)
         assert action.shape == (7,)
         np.testing.assert_allclose(action, [0.01, 0, 0, 0, 0, 0, -0.01], atol=1e-7)
+
+
+def test_repeated_targets():
+    from robot_imitation_glue.preprocessing import repeated_targets
+
+    targets = np.array([[0.0, 1.0], [0.0, 1.0], [0.5, 1.0], [0.5, 1.0], [0.5, 1.0], [0.5, 0.9]])
+    np.testing.assert_array_equal(repeated_targets(targets), [False, True, False, True, True, False])
