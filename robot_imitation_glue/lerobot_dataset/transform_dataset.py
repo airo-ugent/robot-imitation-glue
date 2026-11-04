@@ -32,7 +32,10 @@ def transform_dataset(  # noqa: C901
         new_root_dir: Path to save the transformed LeRobot dataset.
         new_repo_id: Repository ID for the new dataset (defaults to original repo_id + '_transformed').
         transform_fn: Function that takes a frame dictionary and returns a transformed frame dictionary. The frame
-            holds the 'task' string, which lerobot requires in every frame, so keep it in the returned frame.
+            holds the 'task' string, which lerobot requires in every frame, so keep it in the returned frame. It
+            also holds the int 'episode_index' and 'frame_index' of the source frame, for transforms that need the
+            episode context; they are removed from the returned frame (the new dataset numbers its own frames).
+            Return None to drop the frame; an episode without any remaining frame is dropped.
         transform_features_fn: Optional function that takes a features dictionary and returns a transformed features dictionary.
         features_to_drop: List of feature names to drop from the new dataset.
         use_videos: Whether to use videos for the new dataset.
@@ -112,11 +115,14 @@ def transform_dataset(  # noqa: C901
         print(f"Processing {dataset.num_episodes} episodes")
 
     current_episode = None
+    n_frames_in_episode = 0
     for idx in tqdm.tqdm(range(len(dataset)), disable=not verbose):
         frame = dataset[idx]
         episode_index = int(frame["episode_index"])
-        if current_episode is not None and episode_index != current_episode:
+        frame_index = int(frame["frame_index"])
+        if current_episode is not None and episode_index != current_episode and n_frames_in_episode > 0:
             new_dataset.save_episode()
+            n_frames_in_episode = 0
         current_episode = episode_index
 
         # these are auto-generated, so remove them from the frame
@@ -137,12 +143,18 @@ def transform_dataset(  # noqa: C901
                 frame[key] = value
 
         # Apply the transformation function
+        frame["episode_index"] = episode_index
+        frame["frame_index"] = frame_index
         new_frame = transform_fn(frame)
+        if new_frame is None:
+            continue
+        new_frame = {k: v for k, v in new_frame.items() if k not in ("episode_index", "frame_index")}
 
         # Add the transformed frame to the new dataset
         new_dataset.add_frame(new_frame)
+        n_frames_in_episode += 1
 
-    if current_episode is not None:
+    if n_frames_in_episode > 0:
         new_dataset.save_episode()
     # flushes and closes the parquet writers, the new dataset is not readable before this
     new_dataset.finalize()
