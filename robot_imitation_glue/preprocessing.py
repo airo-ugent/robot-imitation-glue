@@ -159,6 +159,16 @@ def relative_policy_action_to_abs_se3_converter(
     return target_pose_se3, new_gripper_state
 
 
+def euler_state_to_se3(state) -> np.ndarray:
+    """4x4 pose of a station state [x,y,z, rx,ry,rz, ...] (extrinsic XYZ euler angles, as `get_robot_pose_euler`)."""
+    from scipy.spatial.transform import Rotation as R
+
+    pose = np.eye(4)
+    pose[:3, 3] = state[:3]
+    pose[:3, :3] = R.from_euler("xyz", state[3:6]).as_matrix()
+    return pose
+
+
 def repeated_targets(targets, tolerance: float = 1e-6) -> np.ndarray:
     """(N,) mask of the steps of one episode whose absolute target equals the one of the previous step.
 
