@@ -59,10 +59,11 @@ class FakeCamera:
 class FakeStation(ManipulatorStation):
     def _setup_cameras(self, create_wrist_camera, create_scene_camera):
         self._wrist_camera_subscriber = create_wrist_camera()
-        self._scene_camera_subscriber = create_scene_camera()
+        self._scene_camera_subscriber = create_scene_camera() if create_scene_camera is not None else None
+        self._scene_camera_publisher = None
 
     def preprocess_images(self, wrist_image, scene_image):
-        return wrist_image[::2, ::2], scene_image[::4, ::4]
+        return wrist_image[::2, ::2], None if scene_image is None else scene_image[::4, ::4]
 
 
 def make_station(monkeypatch):
@@ -137,3 +138,14 @@ def test_act_joints(monkeypatch):
     np.testing.assert_allclose(env.robot.servo_joints[0][0], joints)
     assert env.robot.servo_joints[0][1] == 0
     assert env.gripper.commands == [0.0]
+
+
+def test_observations_without_scene_camera(monkeypatch):
+    # a station with only a wrist camera has no scene keys, instead of placeholder values
+    monkeypatch.setattr(time, "sleep", lambda _: None)
+    env = FakeStation(FakeRobot(), FakeCamera, None)
+    obs = env.get_observations()
+
+    assert "scene_image" not in obs and "scene_image_original" not in obs
+    assert obs["wrist_image"].shape == (240, 320, 3)
+    assert obs["state"].shape == (7,)

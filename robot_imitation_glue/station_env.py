@@ -10,6 +10,9 @@ its gripper attached) and pass it together with the camera creation functions to
 `preprocess_images` for the station's image resizing, `is_safe_pose` for extra safety checks on servo targets
 and `servo_gripper` if the gripper has a faster call than `move`. See ur3station/ur3_robot_env.py and
 ur5station/ur5_robot_env.py for examples.
+
+The scene camera is optional: pass `create_scene_camera=None` for a station with only a wrist camera. The
+observations then have no `scene_image` / `scene_image_original` keys and `preprocess_images` gets None for it.
 """
 
 import time
@@ -32,7 +35,7 @@ class ManipulatorStation(BaseEnv):
     ACTION_SPEC = None
     PROPRIO_OBS_SPEC = None
 
-    def __init__(self, robot, create_wrist_camera, create_scene_camera):
+    def __init__(self, robot, create_wrist_camera, create_scene_camera=None):
         self.robot = robot
         self.gripper = robot.gripper
         self._setup_cameras(create_wrist_camera, create_scene_camera)
@@ -51,6 +54,11 @@ class ManipulatorStation(BaseEnv):
         logger.info("Creating wrist camera subscriber.")
         self._wrist_camera_subscriber = RGBCameraSubscriber(WRIST_CAM_RESOLUTION_TOPIC, WRIST_CAM_RGB_TOPIC)
 
+        self._scene_camera_publisher = None
+        self._scene_camera_subscriber = None
+        if create_scene_camera is None:
+            logger.info("No scene camera.")
+            return
         logger.info("Creating scene camera publisher.")
         self._scene_camera_publisher = RGBCameraPublisher(
             create_scene_camera, SCENE_CAM_RGB_TOPIC, SCENE_CAM_RESOLUTION_TOPIC, 100
@@ -62,7 +70,10 @@ class ManipulatorStation(BaseEnv):
     # hooks for station-specific behaviour
 
     def preprocess_images(self, wrist_image, scene_image):
-        """resized images for the policy, the originals are kept in the observation as well"""
+        """resized images for the policy, the originals are kept in the observation as well.
+
+        `scene_image` is None for a station without a scene camera, return None for it then.
+        """
         return wrist_image, scene_image
 
     def is_safe_pose(self, robot_pose_se3):
@@ -96,9 +107,11 @@ class ManipulatorStation(BaseEnv):
     def get_observations(self):
         start_time = time.time()
         self._wrist_camera_subscriber.grab_images()
-        self._scene_camera_subscriber.grab_images()
         wrist_image = self._wrist_camera_subscriber.retrieve_rgb_image_as_int()
-        scene_image = self._scene_camera_subscriber.retrieve_rgb_image_as_int()
+        scene_image = None
+        if self._scene_camera_subscriber is not None:
+            self._scene_camera_subscriber.grab_images()
+            scene_image = self._scene_camera_subscriber.retrieve_rgb_image_as_int()
         robot_state = self.get_robot_pose_euler().astype(np.float32)
         gripper_state = self.get_gripper_opening().astype(np.float32)
         joints = self.robot.get_joint_configuration().astype(np.float32)
@@ -108,14 +121,15 @@ class ManipulatorStation(BaseEnv):
 
         obs_dict = {
             "wrist_image_original": wrist_image,
-            "scene_image_original": scene_image,
             "wrist_image": wrist_image_resized,
-            "scene_image": scene_image_resized,
             "state": state,
             "robot_pose": robot_state,
             "gripper_state": gripper_state,
             "joints": joints,
         }
+        if scene_image is not None:
+            obs_dict["scene_image_original"] = scene_image
+            obs_dict["scene_image"] = scene_image_resized
         logger.debug(f"get_observations time: {time.time() - start_time}")
         return obs_dict
 
@@ -173,4 +187,5 @@ class ManipulatorStation(BaseEnv):
 
     def close(self):
         self._wrist_camera_publisher.stop()
-        self._scene_camera_publisher.stop()
+        if self._scene_camera_publisher is not None:
+            self._scene_camera_publisher.stop()
