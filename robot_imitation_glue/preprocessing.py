@@ -130,7 +130,8 @@ def abs_se3_to_relative_policy_action_converter(robot_pose, gripper_pose, abs_se
 
     relative_pos = relative_se3[:3, 3]
     relative_euler = R.from_matrix(relative_se3[:3, :3]).as_euler("xyz")
-    relative_gripper = gripper_action - gripper_pose
+    # the gripper widths can be floats (e.g. `airo_teleop_se3_action_to_pose`) or 1-element arrays
+    relative_gripper = np.reshape(np.asarray(gripper_action, dtype=np.float64) - np.asarray(gripper_pose), (1,))
 
     return np.concatenate((relative_pos, relative_euler, relative_gripper), axis=0).astype(np.float32)
 

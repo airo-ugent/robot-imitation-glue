@@ -177,6 +177,12 @@ def test_joint_space_collection(event_holder):
     np.testing.assert_allclose(actions[0], [10.0, 20.0, 0.5])
     np.testing.assert_allclose(actions[1], [30.0, 40.0, 0.2])
 
+    # the absolute targets are recorded next to the actions
+    observations = [obs for obs, _ in recorder.episodes[0]]
+    np.testing.assert_allclose(observations[1]["target_joints"], [30.0, 40.0])
+    np.testing.assert_allclose(observations[1]["target_gripper"], [0.2])
+    assert "target_pose" not in observations[1]
+
 
 def test_eef_collection_still_integrates_target_pose(event_holder):
     env = LoopMockEnv(event_holder, EVENT_SCRIPT)
@@ -206,6 +212,17 @@ def test_eef_collection_still_integrates_target_pose(event_holder):
     assert len(actions) == 2
     np.testing.assert_allclose(actions[0][:2], initial_position + [1, 0])
     np.testing.assert_allclose(actions[1][:2], initial_position + [2, 0])
+
+    # the absolute target pose [xyz, rot6d] and gripper are recorded next to the actions
+    for obs, action in recorder.episodes[0]:
+        assert obs["target_pose"].dtype == np.float32 and obs["target_pose"].shape == (9,)
+        np.testing.assert_allclose(obs["target_pose"], action[:9])
+        np.testing.assert_allclose(obs["target_gripper"], action[9:])
+
+    # the example observation for a recorder has the same target entries
+    example = collect_data_module.example_recording_observation(env, agent)
+    assert example["target_pose"].shape == (9,) and example["target_gripper"].shape == (1,)
+    assert set(env.get_observations()) < set(example)
 
 
 class RefusingLoopMockEnv(LoopMockEnv):

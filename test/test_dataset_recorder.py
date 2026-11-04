@@ -175,3 +175,30 @@ def test_saved_episodes_survive_a_killed_session(tmp_path, use_videos):
     np.testing.assert_array_equal(_saved_column(dataset, "episode_index").reshape(-1), np.repeat([0, 1, 2, 3], 3))
     if use_videos:
         assert dataset[11]["scene_image"].shape == (3, 64, 64)
+
+
+def test_appending_to_a_dataset_without_the_new_features(tmp_path):
+    """a dataset recorded before the target features were added can still be appended to, without them."""
+    recorder = _make_recorder(tmp_path / "dataset")
+    _record_steps(recorder, 2)
+    recorder.save_episode()
+    recorder.finish_recording()
+
+    obs_with_targets = {**EXAMPLE_OBS, "target_pose": np.zeros(9, dtype=np.float32)}
+    recorder = LeRobotDatasetRecorder(
+        example_obs_dict=obs_with_targets,
+        example_action=EXAMPLE_ACTION,
+        root_dataset_dir=tmp_path / "dataset",
+        dataset_name="test_dataset",
+        fps=10,
+        use_videos=False,
+    )
+    recorder.start_episode()
+    for _ in range(3):
+        recorder.record_step(obs_with_targets, EXAMPLE_ACTION)
+    recorder.save_episode()
+    recorder.finish_recording()
+
+    dataset = LeRobotDataset(repo_id="test_dataset", root=tmp_path / "dataset")
+    assert dataset.meta.total_episodes == 2 and dataset.meta.total_frames == 5
+    assert "target_pose" not in dataset.features

@@ -85,6 +85,12 @@ class LeRobotDatasetRecorder(BaseDatasetRecorder):
             self.lerobot_dataset = self._resume_existing()
             self._n_recorded_episodes = self.lerobot_dataset.meta.total_episodes
             print(f"Loaded {self._n_recorded_episodes} episodes.")
+            # e.g. a dataset recorded before collect_data recorded the absolute targets: keep appending its features
+            missing = [key for key in self.image_keys + self.state_keys if key not in self.lerobot_dataset.features]
+            if missing:
+                print(f"WARNING: {dataset_name} has no {missing} features, these are not recorded.")
+                self.image_keys = [key for key in self.image_keys if key not in missing]
+                self.state_keys = [key for key in self.state_keys if key not in missing]
         else:
             print(f"Dataset {dataset_name} does not exist. Creating it.")
             self.lerobot_dataset = LeRobotDataset.create(
