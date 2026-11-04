@@ -83,6 +83,35 @@ def init_keyboard_listener(event: Event, state: State):
     return listener
 
 
+# absolute targets that collect_data adds to every recorded observation, next to the (converter-specific) action, so
+# that a dataset can be converted to another action space afterwards (e.g. ur3station/prepare_datasets.py). The
+# recorder only stores them if its example observation has them: build it with `example_recording_observation`.
+TARGET_POSE_KEY = "target_pose"  # EEF actions: [xyz, rotation x-axis, rotation y-axis] in the robot base frame
+TARGET_JOINTS_KEY = "target_joints"  # joint actions: the joint configuration sent to the robot
+TARGET_GRIPPER_KEY = "target_gripper"  # the gripper width sent to the robot
+
+
+def target_observation(target_gripper, target_pose=None, target_joints=None) -> dict:
+    """the absolute target of a step as observation entries (float32 vectors), for EEF or joint actions."""
+    targets = {TARGET_GRIPPER_KEY: np.reshape(np.asarray(target_gripper, dtype=np.float32), (1,))}
+    if target_pose is not None:
+        pose = np.asarray(target_pose)
+        targets[TARGET_POSE_KEY] = np.concatenate([pose[:3, 3], pose[:3, 0], pose[:3, 1]]).astype(np.float32)
+    if target_joints is not None:
+        targets[TARGET_JOINTS_KEY] = np.asarray(target_joints, dtype=np.float32)
+    return targets
+
+
+def example_recording_observation(env: BaseEnv, teleop_agent: BaseAgent) -> dict:
+    """an observation of `env` with the target entries collect_data records, as `example_obs_dict` of a recorder."""
+    observation = env.get_observations()
+    if is_joint_action_type(resolve_action_type(env, teleop_agent)):
+        targets = target_observation(env.get_gripper_opening(), target_joints=env.get_joint_configuration())
+    else:
+        targets = target_observation(env.get_gripper_opening(), target_pose=env.get_robot_pose_se3())
+    return {**observation, **targets}
+
+
 # record buttons of a teleop device (e.g. the airo-teleop phone web UI) and the event each one triggers
 TELEOP_DEVICE_BUTTONS = {
     "startRecording": "start_recording",
@@ -259,6 +288,7 @@ def collect_data(  # noqa: C901
                     gripper_pose=new_gripper_target_width,
                     timestamp=time.time() + control_period,
                 )
+                targets = target_observation(new_gripper_target_width, target_joints=new_joint_target)
             else:
                 # not executed, so do not record it as a demonstration step either
                 policy_formatted_action = None
@@ -267,10 +297,6 @@ def collect_data(  # noqa: C901
             new_robot_target_se3_pose, new_gripper_target_width = teleop_to_pose_converter(
                 target_pose, target_gripper_state, action
             )
-
-            # store the actions in absolute format, to facilitate any action conversion later on.
-            # observation["target_abs_robot_se3e_pose"] = new_robot_target_se3_pose
-            # observation["target_abs_gripper_pose"] = new_gripper_target_width
 
             executed = env.act(
                 robot_pose_se3=new_robot_target_se3_pose,
@@ -286,9 +312,11 @@ def collect_data(  # noqa: C901
                 policy_formatted_action = abs_pose_to_policy_action(
                     target_pose, target_gripper_state, new_robot_target_se3_pose, new_gripper_target_width
                 )
+                targets = target_observation(new_gripper_target_width, target_pose=new_robot_target_se3_pose)
 
         if state.is_recording and policy_formatted_action is not None:
-            dataset_recorder.record_step(observation, policy_formatted_action)
+            # the absolute target next to the action, see TARGET_POSE_KEY
+            dataset_recorder.record_step({**observation, **targets}, policy_formatted_action)
 
         # wait for end of the control period
         if cycle_end_time > time.time():

@@ -4,7 +4,7 @@ from pathlib import Path
 import numpy as np
 
 from robot_imitation_glue.agents.airo_teleop_agent import make_gello_agent
-from robot_imitation_glue.collect_data import collect_data
+from robot_imitation_glue.collect_data import collect_data, example_recording_observation
 from robot_imitation_glue.dataset_recorder import LeRobotDatasetRecorder
 
 # the action encoding is shared with the dataset preparation and the eval scripts,
@@ -33,7 +33,8 @@ if __name__ == "__main__":
     agent = make_gello_agent(env, GELLO_AGENT_PORT, GELLO_CONFIG)
 
     dataset_recorder = LeRobotDatasetRecorder(
-        example_obs_dict=env.get_observations(),
+        # with the absolute targets collect_data records next to the actions
+        example_obs_dict=example_recording_observation(env, agent),
         example_action=np.zeros(10),
         root_dataset_dir=Path(f"datasets/{args.dataset_name}/"),
         dataset_name="none",
