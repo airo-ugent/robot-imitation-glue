@@ -217,7 +217,33 @@ def make_spacemouse_agent(env, action_mode: str = "delta") -> AiroTeleopAgent:
     )
 
 
-class PhoneGripperAgent(AiroTeleopAgent):
+# the state of airo-teleop's Phone4PositionManipulator that holds a target pose: the pose it returns while "move" is
+# released (only read from the robot when it is None) and the reference of a move. It has no reset() for these.
+_PHONE_TARGET_STATE = {
+    "_command_when_disabled": None,
+    "_reference_pose": None,
+    "_last_command_pose": None,
+    "_enable_time_s": None,
+    "_prev_enabled": False,
+}
+
+
+class PhoneAgent(AiroTeleopAgent):
+    """a phone agent whose `reset()` restarts from the measured TCP pose.
+
+    airo-teleop's phone agent keeps returning the last pose commanded with the phone while "move" is released. When
+    something else moved the robot in the meantime (a policy rollout in `eval_agent.eval`), that stale pose would make
+    the robot move back to it, so `reset()` clears it; the next action is then the measured TCP pose.
+    """
+
+    def reset(self):
+        super().reset()
+        for name, value in _PHONE_TARGET_STATE.items():
+            if hasattr(self.teleop_agent, name):
+                setattr(self.teleop_agent, name, value)
+
+
+class PhoneGripperAgent(PhoneAgent):
     """a phone agent that also moves the gripper while the A / B buttons of the web UI are held.
 
     holding `close_button` closes the gripper and holding `open_button` opens it, at `speed` m/s, so the width is
@@ -293,7 +319,7 @@ def make_phone_agent(
         env.robot, phone_config, phone_forward_axis=phone_forward_axis, **phone_agent_kwargs
     )
     if not control_gripper:
-        return AiroTeleopAgent(phone_agent)
+        return PhoneAgent(phone_agent)
     specs = env.gripper.gripper_specs
     # the targets advance at gripper_speed in steps of the control period. A gripper that runs faster (the Robotiq
     # starts at its max speed, 0.15 m/s) finishes each step early and waits for the next one, which is jerky.

@@ -393,6 +393,8 @@ def test_joint_space_eval(monkeypatch):
     env = JointLoopMockEnv(holder, {1: "start_rollout", 3: "stop_rollout", 4: "quit"})
     env.reset()
     teleop_agent = ScriptedAgent(JointActionSpec, [np.array([10.0, 20.0, 0.0])])
+    teleop_resets = []
+    teleop_agent.reset = lambda: teleop_resets.append(len(env.joint_moves))
     policy_agent = ScriptedAgent(JointActionSpec, [np.array([12.0, 20.0, 0.0]), np.array([300.0, 20.0, 0.0])])
     recorder = ListDatasetRecorder()
 
@@ -413,6 +415,8 @@ def test_joint_space_eval(monkeypatch):
 
     # the robot approached the teleop configuration slowly before each teleop phase
     np.testing.assert_allclose(env.joint_moves, [[10, 20], [10, 20]])
+    # the teleop agent was reset before each teleop phase, before the robot is moved to its first action
+    assert teleop_resets == [0, 1]
     # teleop, policy step, (policy jump refused), teleop
     np.testing.assert_allclose([joints for joints, _ in env.joint_actions], [[10, 20], [12, 20], [10, 20]])
     assert env.eef_actions == []
