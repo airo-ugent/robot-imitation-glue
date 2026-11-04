@@ -13,8 +13,9 @@ from airo_robots.manipulators.hardware.ur_rtde import URrtde
 
 from robot_imitation_glue.station_env import ManipulatorStation
 
-WRIST_REALSENSE_SERIAL = "925322060348"
-SCENE_REALSENSE_SERIAL = "231122072220"
+WRIST_REALSENSE_SERIAL = "944122073290"
+# None for a station without a scene camera (it used to be "231122072220")
+SCENE_REALSENSE_SERIAL = None
 
 ROBOT_IP = "10.42.0.162"
 
@@ -35,12 +36,13 @@ class UR3eStation(ManipulatorStation):
         gripper = Robotiq2F85(ROBOT_IP)
         logger.info("connecting to robot.")
         robot = URrtde(ROBOT_IP, URrtde.UR3E_CONFIG, gripper=gripper)
-        super().__init__(robot, CameraFactory.create_wrist_camera, CameraFactory.create_scene_camera)
+        create_scene_camera = CameraFactory.create_scene_camera if SCENE_REALSENSE_SERIAL is not None else None
+        super().__init__(robot, CameraFactory.create_wrist_camera, create_scene_camera)
 
     def preprocess_images(self, wrist_image, scene_image):
         # resize wrist image to 224x224, cut the first 200 x pixels of the scene image and resize to 224x224
         wrist_image_resized = cv2.resize(wrist_image, (224, 224))
-        scene_image_resized = cv2.resize(scene_image[:, 200:], (224, 224))
+        scene_image_resized = None if scene_image is None else cv2.resize(scene_image[:, 200:], (224, 224))
         return wrist_image_resized, scene_image_resized
 
     def servo_gripper(self, width):
@@ -62,7 +64,8 @@ if __name__ == "__main__":
     while True:
         obs = env.get_observations()
         cv2.imshow("wrist", obs["wrist_image"])
-        cv2.imshow("scene", obs["scene_image"])
+        if "scene_image" in obs:
+            cv2.imshow("scene", obs["scene_image"])
 
         current_z = obs["robot_pose"][2]
         if current_z > 0.2:
