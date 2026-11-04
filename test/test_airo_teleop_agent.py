@@ -179,3 +179,46 @@ def test_phone_gripper_agent_integrates_a_b_buttons(monkeypatch):
     # reset restarts from the measured width
     agent.reset()
     assert agent.get_action()[-1] == pytest.approx(0.04)
+
+
+def test_phone_agent_reset_restarts_from_the_measured_pose(monkeypatch):
+    """airo-teleop's phone agent returns its last commanded pose while "move" is released; after reset() it returns
+    the measured TCP pose, so eval() does not move the robot back to where the phone left it before a rollout."""
+    phone_module = pytest.importorskip("airo_teleop_agents.phone_teleop_agents")
+    from robot_imitation_glue.agents.airo_teleop_agent import PhoneAgent
+
+    class FakePhoneDevice:
+        """raw phone state [pos(3), rotvec(3), move]"""
+
+        def __init__(self, phone_config, auto_connect=True):
+            self.raw = np.zeros(7)
+
+        def get_raw_state(self):
+            return self.raw.copy()
+
+    class FakeRobot:
+        def __init__(self):
+            self.pose = np.eye(4)
+
+        def get_tcp_pose(self):
+            return self.pose.copy()
+
+    monkeypatch.setattr(phone_module, "PhoneTeleopDevice", FakePhoneDevice)
+    monkeypatch.setattr(phone_module.time, "monotonic", lambda: 100.0)  # no settle time
+    robot = FakeRobot()
+    phone = phone_module.Phone4PositionManipulator(robot, None, enable_settle_time_s=0.0)
+    agent = PhoneAgent(phone)
+
+    # teleop: hold "move" and move the phone 1 cm, then release
+    phone.teleop_device.raw[6] = 1.0
+    agent.get_action()
+    phone.teleop_device.raw[:3] = [0.0, 0.0, 0.02]
+    teleop_target = agent.get_action()[:3]
+    phone.teleop_device.raw[6] = 0.0
+    np.testing.assert_allclose(agent.get_action()[:3], teleop_target)
+
+    # a policy rollout moves the robot elsewhere: without reset the phone would still return the old target
+    robot.pose[:3, 3] = [0.1, 0.25, -0.05]
+    np.testing.assert_allclose(agent.get_action()[:3], teleop_target)
+    agent.reset()
+    np.testing.assert_allclose(agent.get_action()[:3], [0.1, 0.25, -0.05])

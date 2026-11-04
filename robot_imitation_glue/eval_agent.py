@@ -169,6 +169,9 @@ def eval(  # noqa: C901
         target_gripper_state = env.get_gripper_opening()
 
         logger.info("Start teleop")
+        # teleop agents that hold a target (e.g. the phone) restart from the measured robot state, not from where
+        # they were before the rollout: the robot is moved to their first action below.
+        teleop_agent.reset()
         if is_joint_action:
             # first move slowly to the configuration of the teleop device
             approach_teleop_joint_configuration(env, teleop_agent, teleop_to_joints_converter, confirm_joint_approach)
