@@ -174,3 +174,15 @@ def test_relative_policy_action_converter_binarizes_gripper():
     assert closed == 0.0
     assert opened == pytest.approx(ROBOTIQ_2F85_MAX_WIDTH)
     np.testing.assert_allclose(pose, np.eye(4))
+
+
+def test_relative_policy_action_accepts_float_and_array_gripper_widths():
+    # airo_teleop_se3_action_to_pose returns a float width, the delta converter a 1-element array
+    from robot_imitation_glue.preprocessing import abs_se3_to_relative_policy_action_converter
+
+    target = np.eye(4)
+    target[:3, 3] = [0.01, 0.0, 0.0]
+    for current, new in [(np.array([0.04]), 0.03), (0.04, np.array([0.03])), (0.04, 0.03)]:
+        action = abs_se3_to_relative_policy_action_converter(np.eye(4), current, target, new)
+        assert action.shape == (7,)
+        np.testing.assert_allclose(action, [0.01, 0, 0, 0, 0, 0, -0.01], atol=1e-7)

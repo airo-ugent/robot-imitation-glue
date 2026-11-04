@@ -47,6 +47,8 @@ The SpaceMouse agents can also return delta actions (``action_mode="delta"``): a
 ``robot_imitation_glue.preprocessing.delta_action_to_abs_se3_converter`` (see ``ur3station``).
 """
 
+import time
+
 import numpy as np
 
 from robot_imitation_glue.base import BaseAgent
@@ -215,12 +217,92 @@ def make_spacemouse_agent(env, action_mode: str = "delta") -> AiroTeleopAgent:
     )
 
 
-def make_phone_agent(env, phone_config) -> AiroTeleopAgent:
+class PhoneGripperAgent(AiroTeleopAgent):
+    """a phone agent that also moves the gripper while the A / B buttons of the web UI are held.
+
+    holding `close_button` closes the gripper and holding `open_button` opens it, at `speed` m/s, so the width is
+    integrated in small deltas between `min_width` and `max_width`. returns [pose (9), gripper width]. The target
+    width starts from (and after `reset()` restarts from) `get_current_width()`, the measured gripper width.
+    """
+
+    def __init__(
+        self,
+        teleop_agent,
+        get_current_width,
+        min_width: float,
+        max_width: float,
+        speed: float = 0.05,
+        close_button: str = "reservedButtonA",
+        open_button: str = "reservedButtonB",
+        action_spec=None,
+    ):
+        super().__init__(teleop_agent, action_spec)
+        self.get_current_width = get_current_width
+        self.min_width = min_width
+        self.max_width = max_width
+        self.speed = speed
+        self.close_button = close_button
+        self.open_button = open_button
+        self._width = None
+        self._last_time = None
+
+    def get_action(self, observation=None) -> np.ndarray:
+        action = super().get_action(observation)[:SE3_ACTION_DIM]
+
+        now = time.monotonic()
+        if self._width is None:
+            self._width = float(self.get_current_width())
+            self._last_time = now
+        # clip dt, so a pause (e.g. paused teleop) does not turn into one large step
+        dt = min(now - self._last_time, 0.2)
+        self._last_time = now
+
+        buttons = getattr(self.teleop_device, "last_raw_inputs", None) or {}
+        direction = int(bool(buttons.get(self.open_button))) - int(bool(buttons.get(self.close_button)))
+        self._width = float(np.clip(self._width + direction * self.speed * dt, self.min_width, self.max_width))
+        return np.concatenate([action, [self._width]])
+
+    def reset(self):
+        super().reset()
+        self._width = None
+
+
+def make_phone_agent(
+    env,
+    phone_config,
+    phone_forward_axis: str = "-x",
+    control_gripper: bool = True,
+    gripper_speed: float = 0.05,
+    **phone_agent_kwargs,
+) -> AiroTeleopAgent:
     """a phone (airo_teleop_phone.PhoneConfig, needs lerobot[phone]) for the robot of `env`.
 
-    returns the new TCP pose, use it with `airo_teleop_se3_action_to_pose`. The phone does not command the gripper,
-    so the gripper keeps its current width.
+    `phone_forward_axis` is the robot base axis ("+x", "-x", "+y", "-y") the top of the phone points to when the
+    agent is created, i.e. moving the phone forward moves the TCP along that axis. Other keyword arguments (e.g.
+    `translation_scale`, `rotation_scale`, `enabled_axes`) go to airo-teleop's `Phone4PositionManipulator`.
+
+    returns the new TCP pose, use it with `airo_teleop_se3_action_to_pose`. With `control_gripper` (Android web UI),
+    holding A closes and holding B opens the gripper of `env` at `gripper_speed` m/s (see `PhoneGripperAgent`);
+    otherwise the gripper keeps its current width. With `control_gripper`, this also sets the speed of the gripper
+    itself to `gripper_speed`, so it moves smoothly between targets. The web UI's "Gripper Engaged" toggle is not used. The record
+    buttons of the web UI work in `collect_data` either way.
     """
     from airo_teleop_agents.phone_teleop_agents import Phone4PositionManipulator
 
-    return AiroTeleopAgent(Phone4PositionManipulator(env.robot, phone_config))
+    phone_agent = Phone4PositionManipulator(
+        env.robot, phone_config, phone_forward_axis=phone_forward_axis, **phone_agent_kwargs
+    )
+    if not control_gripper:
+        return AiroTeleopAgent(phone_agent)
+    specs = env.gripper.gripper_specs
+    # the targets advance at gripper_speed in steps of the control period. A gripper that runs faster (the Robotiq
+    # starts at its max speed, 0.15 m/s) finishes each step early and waits for the next one, which is jerky.
+    # the gripper's speed setter clips it to the range of the gripper.
+    env.gripper.speed = gripper_speed
+    return PhoneGripperAgent(
+        phone_agent,
+        get_current_width=env.gripper.get_current_width,
+        min_width=specs.min_width,
+        max_width=specs.max_width,
+        speed=gripper_speed,
+    )

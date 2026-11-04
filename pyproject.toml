@@ -35,8 +35,9 @@ airo = [
 ]
 # vendored lerobot (huggingface/lerobot, pinned release): dataset recording/replay, training and the lerobot agents
 lerobot = ["lerobot[dataset,training,diffusion]"]
-# vendored airo-teleop packages: teleop devices (Gello, SpaceMouse, phone) and their agents
-teleop = ["airo-teleop-devices", "airo-teleop-agents"]
+# vendored airo-teleop packages: teleop devices (Gello, SpaceMouse, phone) and their agents,
+# lerobot[phone] (hebi-py, teleop) is what airo-teleop's phone device runs on
+teleop = ["airo-teleop-devices", "airo-teleop-agents", "lerobot[phone]"]
 # learned policies that run in-process (baseline policy, eval_lerobot.py)
 baseline = ["torch", "torchvision"]
 # vendor SDKs for the concrete hardware of the UR3/UR5 stations
