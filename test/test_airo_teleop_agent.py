@@ -139,3 +139,43 @@ def test_invalid_action_shape_raises():
 
     with pytest.raises(ValueError):
         agent.get_action()
+
+
+def test_phone_gripper_agent_integrates_a_b_buttons(monkeypatch):
+    """holding A closes and holding B opens the gripper in deltas, clipped to the gripper range."""
+    from types import SimpleNamespace
+
+    import robot_imitation_glue.agents.airo_teleop_agent as module
+    from robot_imitation_glue.agents.airo_teleop_agent import PhoneGripperAgent, airo_teleop_se3_action_to_pose
+
+    clock = [0.0]
+    monkeypatch.setattr(module.time, "monotonic", lambda: clock[0])
+    device = SimpleNamespace(last_raw_inputs={})
+    teleop_agent = SimpleNamespace(get_action=lambda: np.eye(4), teleop_device=device)
+    agent = PhoneGripperAgent(teleop_agent, lambda: 0.04, min_width=0.0, max_width=0.085, speed=0.05)
+
+    def step(buttons):
+        clock[0] += 0.1
+        device.last_raw_inputs = buttons
+        return agent.get_action()
+
+    # starts from the measured width, no button: unchanged
+    assert agent.get_action()[-1] == pytest.approx(0.04)
+    assert step({})[-1] == pytest.approx(0.04)
+    assert step({"reservedButtonA": True})[-1] == pytest.approx(0.035)
+    assert step({"reservedButtonB": True})[-1] == pytest.approx(0.04)
+    for _ in range(20):
+        action = step({"reservedButtonB": True})
+    assert action[-1] == pytest.approx(0.085)
+    pose, gripper = airo_teleop_se3_action_to_pose(None, 0.0, action)
+    np.testing.assert_allclose(pose, np.eye(4))
+    assert gripper == pytest.approx(0.085)
+
+    # a long pause is not one large step
+    clock[0] += 10.0
+    device.last_raw_inputs = {"reservedButtonA": True}
+    assert agent.get_action()[-1] == pytest.approx(0.075)
+
+    # reset restarts from the measured width
+    agent.reset()
+    assert agent.get_action()[-1] == pytest.approx(0.04)
