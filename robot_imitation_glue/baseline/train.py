@@ -89,8 +89,10 @@ def compute_normalization_stats(dataloader: DataLoader) -> tuple[Normalizer, Nor
     """One pass over the dataset to compute the mean/std of the proprioception and the action vectors."""
     proprios, actions = [], []
     for _, proprio, action in tqdm(dataloader, desc="Computing normalization stats", leave=False):
-        proprios.append(proprio)
-        actions.append(action)
+        # clone: a batch from a worker process lives in shared memory that holds a file descriptor open for as long
+        # as the tensor is alive, so keeping every batch exhausts `ulimit -n` (1024) on datasets of ~1000+ batches
+        proprios.append(proprio.clone())
+        actions.append(action.clone())
     proprios = torch.cat(proprios)
     actions = torch.cat(actions)
     proprio_normalizer = Normalizer(proprios.mean(dim=0), proprios.std(dim=0), constant_std=PROPRIO_CONSTANT_STD)
