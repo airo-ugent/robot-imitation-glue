@@ -81,7 +81,9 @@ def compute_normalization_stats(dataloader: DataLoader) -> tuple[Normalizer, Nor
     episode."""
     proprios, actions = [], []
     for _, proprio, action, mask in tqdm(dataloader, desc="Computing normalization stats", leave=False):
-        proprios.append(proprio)
+        # clone: see `train.compute_normalization_stats`, a kept worker batch keeps a file descriptor open
+        # (the boolean indexing below already copies)
+        proprios.append(proprio.clone())
         actions.append(action[mask.bool()])
     proprios = torch.cat(proprios)
     actions = torch.cat(actions)
